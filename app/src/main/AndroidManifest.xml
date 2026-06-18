@@ -12,13 +12,8 @@
 
         <activity
             android:name=".WebAnalyzeActivity"
-            android:exported="true"
-            android:label="网页登录分析器">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
+            android:exported="false"
+            android:label="网页登录分析器" />
 
         <activity
             android:name=".MainActivity"
