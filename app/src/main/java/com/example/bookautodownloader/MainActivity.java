@@ -49,7 +49,7 @@ public class MainActivity extends Activity {
     private LinearLayout resultBox;
     private TextView logView;
     private final Handler ui = new Handler(Looper.getMainLooper());
-    private static final String PREF = "book_downloader_pref_v2";
+    private static final String PREF = "book_downloader_pref_v4";
     private static final String DEFAULT_TEMPLATES = "https://example.com/search?q={keyword}";
 
     @Override
@@ -78,12 +78,16 @@ public class MainActivity extends Activity {
         header.addView(title, new LinearLayout.LayoutParams(-1, -2));
 
         TextView tip = new TextView(this);
-        tip.setText("复制书名 → 读取剪贴板 → 多资源站搜索 → 匹配下载链接。仅用于自有、授权、公版或允许分发的资料源。");
+        tip.setText("一个APP内完成：多资源站搜索、顺序优先搜索、网页登录分析下载链接。仅用于自有、授权、公版或允许分发的资料源。");
         tip.setTextSize(13);
         tip.setTextColor(Color.parseColor("#5B6475"));
         tip.setGravity(Gravity.CENTER);
-        tip.setPadding(0, dp(8), 0, 0);
+        tip.setPadding(0, dp(8), 0, dp(8));
         header.addView(tip, new LinearLayout.LayoutParams(-1, -2));
+
+        Button webAnalyzer = primaryButton("进入网页登录分析器（适合需要登录的网站）");
+        webAnalyzer.setOnClickListener(v -> startActivity(new Intent(this, WebAnalyzeActivity.class)));
+        header.addView(webAnalyzer, new LinearLayout.LayoutParams(-1, -2));
         root.addView(header);
 
         LinearLayout searchCard = card();
@@ -95,7 +99,7 @@ public class MainActivity extends Activity {
         row1.setOrientation(LinearLayout.HORIZONTAL);
         row1.setPadding(0, dp(8), 0, 0);
         searchCard.addView(row1);
-        Button read = primaryButton("读取剪贴板");
+        Button read = secondaryButton("读取剪贴板");
         read.setOnClickListener(v -> readClipboard(false));
         row1.addView(read, weight(1));
         Button readSearch = primaryButton("读取并搜索全部");
@@ -106,7 +110,7 @@ public class MainActivity extends Activity {
         LinearLayout sourceCard = card();
         addLabel(sourceCard, "资源站搜索网址模板，可添加多个");
         TextView sourceTip = new TextView(this);
-        sourceTip.setText("每行一个模板，必须包含 {keyword}。保存后下次自动保留，不用重复粘贴。\n例如：https://example.com/search?q={keyword}");
+        sourceTip.setText("每行一个模板，必须包含 {keyword}。保存后下次自动保留。\n例如：https://example.com/search?q={keyword}");
         sourceTip.setTextSize(12);
         sourceTip.setTextColor(Color.parseColor("#697386"));
         sourceTip.setPadding(0, 0, 0, dp(6));
@@ -129,10 +133,15 @@ public class MainActivity extends Activity {
 
         LinearLayout optionCard = card();
         addLabel(optionCard, "搜索和下载设置");
+        TextView extTip = new TextView(this);
+        extTip.setText("允许识别的文件类型/关键词：");
+        extTip.setTextSize(12);
+        extTip.setTextColor(Color.parseColor("#697386"));
+        optionCard.addView(extTip);
         extInput = input("pdf,zip,rar,7z", 1);
         optionCard.addView(extInput, new LinearLayout.LayoutParams(-1, -2));
         autoDownloadCheck = new CheckBox(this);
-        autoDownloadCheck.setText("搜索后自动下载最高匹配结果");
+        autoDownloadCheck.setText("搜索后自动下载最高匹配结果（建议测试稳定后再开启）");
         autoDownloadCheck.setTextColor(Color.parseColor("#263248"));
         optionCard.addView(autoDownloadCheck);
 
@@ -153,7 +162,7 @@ public class MainActivity extends Activity {
         resultBox = new LinearLayout(this);
         resultBox.setOrientation(LinearLayout.VERTICAL);
         TextView empty = new TextView(this);
-        empty.setText("还没有搜索结果。先填写书名和模板，然后选择搜索方式。");
+        empty.setText("还没有搜索结果。先填写书名和模板，然后选择搜索方式。需要登录的网站请使用顶部的网页登录分析器。");
         empty.setTextColor(Color.parseColor("#697386"));
         resultBox.addView(empty);
         resultsCard.addView(resultBox, new LinearLayout.LayoutParams(-1, -2));
@@ -531,7 +540,7 @@ public class MainActivity extends Activity {
         log("最终候选链接：" + results.size() + " 个");
         if (results.isEmpty()) {
             TextView none = new TextView(this);
-            none.setText("没有找到可识别的下载链接。可以点“打开全部搜索页”手动处理，或检查网站是否需要登录/验证码。");
+            none.setText("没有找到可识别的下载链接。可以点“打开全部搜索页”手动处理，或使用顶部的网页登录分析器登录后分析当前页。");
             none.setTextColor(Color.parseColor("#697386"));
             resultBox.addView(none);
             return;
@@ -539,9 +548,7 @@ public class MainActivity extends Activity {
         int shown = 0;
         Set<String> seen = new HashSet<>();
         ArrayList<Result> unique = new ArrayList<>();
-        for (Result r : results) {
-            if (seen.add(r.url)) unique.add(r);
-        }
+        for (Result r : results) if (seen.add(r.url)) unique.add(r);
         for (Result r : unique) {
             if (shown++ >= 25) break;
             LinearLayout card = new LinearLayout(this);
@@ -610,9 +617,7 @@ public class MainActivity extends Activity {
         return s.length() > 90 ? s.substring(0, 90) : s;
     }
 
-    private void logSafe(String s) {
-        ui.post(() -> log(s));
-    }
+    private void logSafe(String s) { ui.post(() -> log(s)); }
 
     private void log(String s) {
         String old = logView == null ? "" : logView.getText().toString();
@@ -620,21 +625,15 @@ public class MainActivity extends Activity {
         logView.setText(s + "\n" + old);
     }
 
-    private void toast(String s) {
-        Toast.makeText(this, s, Toast.LENGTH_SHORT).show();
-    }
+    private void toast(String s) { Toast.makeText(this, s, Toast.LENGTH_SHORT).show(); }
 
     private static class Source {
-        String name;
-        String template;
+        String name; String template;
         Source(String n, String t) { name = n; template = t; }
     }
 
     private static class Result {
-        String source;
-        String title;
-        String url;
-        int score;
+        String source; String title; String url; int score;
         Result(String src, String t, String u, int s) { source = src; title = t; url = u; score = s; }
     }
 }
