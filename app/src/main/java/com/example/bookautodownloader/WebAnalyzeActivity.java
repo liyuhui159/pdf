@@ -12,6 +12,8 @@ import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.Gravity;
 import android.webkit.CookieManager;
 import android.webkit.DownloadListener;
@@ -42,12 +44,22 @@ public class WebAnalyzeActivity extends Activity {
     private LinearLayout resultBox;
     private TextView logView;
     private final ArrayList<Item> items = new ArrayList<>();
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private boolean waitRunning = false;
+    private int waitTicks = 0;
 
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
         buildUi();
         setupWebView();
+    }
+
+    @Override
+    protected void onDestroy() {
+        waitRunning = false;
+        handler.removeCallbacksAndMessages(null);
+        super.onDestroy();
     }
 
     private void buildUi() {
@@ -65,7 +77,7 @@ public class WebAnalyzeActivity extends Activity {
         root.addView(title, new LinearLayout.LayoutParams(-1, -2));
 
         TextView tip = new TextView(this);
-        tip.setText("先手动登录/搜索/进入详情页，再点“分析当前页链接”。结果会尽量显示每本书的书名。下载不动时用“网页打开”或“浏览器打开”手动确认。");
+        tip.setText("先手动登录/搜索/进入详情页，再点“分析当前页链接”。遇到60秒慢速下载页，可用“等待并点下载”，它只等待网页按钮变可点，不绕过验证码或限制。");
         tip.setTextSize(12);
         tip.setTextColor(Color.parseColor("#5B6475"));
         tip.setPadding(0, dp(6), 0, dp(6));
@@ -80,7 +92,7 @@ public class WebAnalyzeActivity extends Activity {
 
         LinearLayout row1 = new LinearLayout(this);
         row1.setOrientation(LinearLayout.HORIZONTAL);
-        row1.setPadding(0, dp(6), 0, dp(6));
+        row1.setPadding(0, dp(6), 0, dp(4));
         root.addView(row1);
         Button clip = button("读剪贴板", true);
         clip.setOnClickListener(v -> readClipboard());
@@ -91,6 +103,20 @@ public class WebAnalyzeActivity extends Activity {
         Button analyze = button("分析当前页链接", true);
         analyze.setOnClickListener(v -> analyzePage());
         row1.addView(analyze, weight());
+
+        LinearLayout row2 = new LinearLayout(this);
+        row2.setOrientation(LinearLayout.HORIZONTAL);
+        row2.setPadding(0, dp(2), 0, dp(6));
+        root.addView(row2);
+        Button waitBtn = button("等待并点下载", true);
+        waitBtn.setOnClickListener(v -> startWaitDownload());
+        row2.addView(waitBtn, weight());
+        Button stopBtn = button("停止等待", false);
+        stopBtn.setOnClickListener(v -> stopWaitDownload());
+        row2.addView(stopBtn, weight());
+        Button backBtn = button("网页返回", false);
+        backBtn.setOnClickListener(v -> { if (webView.canGoBack()) webView.goBack(); });
+        row2.addView(backBtn, weight());
 
         webView = new WebView(this);
         LinearLayout.LayoutParams wlp = new LinearLayout.LayoutParams(-1, 0, 1.0f);
@@ -191,6 +217,83 @@ public class WebAnalyzeActivity extends Activity {
         }
     }
 
+    private void startWaitDownload() {
+        if (waitRunning) {
+            toast("已经在等待下载按钮");
+            return;
+        }
+        waitRunning = true;
+        waitTicks = 0;
+        toast("开始监测下载按钮，最多等待3分钟");
+        log("开始等待慢速下载按钮变为可点击。不会绕过验证码/限制，只会等待并点击页面上已可用的下载按钮。");
+        handler.post(waitRunnable);
+    }
+
+    private void stopWaitDownload() {
+        waitRunning = false;
+        handler.removeCallbacks(waitRunnable);
+        toast("已停止等待");
+        log("已停止等待下载按钮");
+    }
+
+    private final Runnable waitRunnable = new Runnable() {
+        @Override public void run() {
+            if (!waitRunning) return;
+            waitTicks++;
+            checkDownloadButtonOnce();
+            if (waitRunning && waitTicks < 180) handler.postDelayed(this, 1000);
+            if (waitTicks >= 180) {
+                waitRunning = false;
+                log("等待超时：3分钟内没有检测到可用下载按钮。建议手动点击网页按钮或用外部浏览器打开。");
+            }
+        }
+    };
+
+    private void checkDownloadButtonOnce() {
+        String js = "(function(){" +
+                "function c(s){return (s||'').replace(/\\s+/g,' ').trim();}" +
+                "function visible(e){try{var r=e.getBoundingClientRect();var st=getComputedStyle(e);return r.width>0&&r.height>0&&st.display!='none'&&st.visibility!='hidden';}catch(x){return true;}}" +
+                "var body=c(document.body?document.body.innerText:'');" +
+                "var m=body.match(/(\\d+)\\s*(秒|s|sec|second|seconds)/i);" +
+                "var sec=m?m[1]:'';" +
+                "var nodes=[].slice.call(document.querySelectorAll('a,button,input[type=button],input[type=submit]'));" +
+                "for(var i=0;i<nodes.length;i++){var e=nodes[i];var t=c(e.innerText||e.textContent||e.value||e.title||e.getAttribute('aria-label')||'');var u=e.href||e.getAttribute('href')||'';var all=(t+' '+u).toLowerCase();" +
+                "if(!visible(e)||e.disabled||e.getAttribute('disabled')!==null)continue;" +
+                "if(all.indexOf('captcha')>=0||all.indexOf('验证码')>=0)continue;" +
+                "if(all.indexOf('download')>=0||all.indexOf('下载')>=0||all.indexOf('slow')>=0||all.indexOf('free')>=0||all.indexOf('.pdf')>=0||all.indexOf('.epub')>=0){e.click();return JSON.stringify({clicked:true,text:t,url:u,sec:sec});}" +
+                "}" +
+                "return JSON.stringify({clicked:false,sec:sec});" +
+                "})()";
+        webView.evaluateJavascript(js, new ValueCallback<String>() {
+            @Override public void onReceiveValue(String value) {
+                try {
+                    String json = unwrapJsonString(value);
+                    JSONObject o = new JSONObject(json);
+                    boolean clicked = o.optBoolean("clicked", false);
+                    String sec = o.optString("sec", "");
+                    if (clicked) {
+                        waitRunning = false;
+                        handler.removeCallbacks(waitRunnable);
+                        String text = o.optString("text", "下载按钮");
+                        log("已点击可用下载按钮：" + text);
+                        toast("已点击下载按钮；如未开始下载，请看网页是否还需确认");
+                    } else if (waitTicks % 5 == 0) {
+                        if (sec.length() > 0) log("等待中，页面显示倒计时约 " + sec + " 秒");
+                        else log("等待中：未发现可点击下载按钮");
+                    }
+                } catch (Exception ignored) {}
+            }
+        });
+    }
+
+    private String unwrapJsonString(String value) {
+        String json = value == null ? "" : value;
+        if (json.length() >= 2 && json.startsWith("\"") && json.endsWith("\"")) {
+            json = json.substring(1, json.length() - 1).replace("\\\"", "\"").replace("\\\\", "\\");
+        }
+        return json;
+    }
+
     private void analyzePage() {
         String js = "(function(){" +
                 "function clean(s){return (s||'').replace(/\\s+/g,' ').trim();}" +
@@ -217,11 +320,7 @@ public class WebAnalyzeActivity extends Activity {
         items.clear();
         resultBox.removeAllViews();
         try {
-            String json = value;
-            if (json != null && json.length() >= 2 && json.startsWith("\"") && json.endsWith("\"")) {
-                json = json.substring(1, json.length() - 1).replace("\\\"", "\"").replace("\\\\", "\\");
-            }
-            JSONArray arr = new JSONArray(json);
+            JSONArray arr = new JSONArray(unwrapJsonString(value));
             String key = keywordInput.getText().toString().trim();
             LinkedHashSet<String> seen = new LinkedHashSet<>();
             for (int i = 0; i < arr.length(); i++) {
@@ -272,7 +371,7 @@ public class WebAnalyzeActivity extends Activity {
         resultBox.removeAllViews();
         if (items.isEmpty()) {
             TextView none = new TextView(this);
-            none.setText("当前页没有识别到明显下载链接。可以进入书籍详情页、点一次页面上的 Download 按钮，或用浏览器打开后再下载。");
+            none.setText("当前页没有识别到明显下载链接。可以进入书籍详情页、点一次页面上的 Download 按钮，或用“等待并点下载”处理倒计时下载页。");
             none.setTextColor(Color.parseColor("#5B6475"));
             resultBox.addView(none);
             return;
