@@ -25,7 +25,6 @@ import android.view.Gravity;
 import android.webkit.CookieManager;
 import android.webkit.DownloadListener;
 import android.webkit.URLUtil;
-import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -65,6 +64,7 @@ public class WebAnalyzeActivity extends Activity {
     private static final String DEFAULT_MODEL = "gpt-4.1-mini";
     private static final String DEFAULT_URL = "https://z-library.mn/?ts=0546";
     private static final int PAGE_TEXT_LIMIT = 12000;
+    private static final int AUTO_DOWNLOAD_CONFIDENCE = 60;
 
     private EditText keywordInput;
     private EditText urlInput;
@@ -114,34 +114,27 @@ public class WebAnalyzeActivity extends Activity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(Color.parseColor("#F4F7FB"));
-        root.setPadding(dp(10), dp(10), dp(10), dp(10));
+        root.setPadding(dp(6), dp(6), dp(6), dp(6));
 
         TextView title = new TextView(this);
         title.setText("网页登录分析下载链接");
-        title.setTextSize(21);
+        title.setTextSize(18);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         title.setGravity(Gravity.CENTER);
         title.setTextColor(Color.parseColor("#1F2A44"));
         root.addView(title, new LinearLayout.LayoutParams(-1, -2));
 
-        TextView tip = new TextView(this);
-        tip.setText("支持多个网页窗口。先输入书名并打开搜索页，再用“AI判断当前页”判断是否符合书名，也可以继续分析下载链接。");
-        tip.setTextSize(12);
-        tip.setTextColor(Color.parseColor("#5B6475"));
-        tip.setPadding(0, dp(6), 0, dp(6));
-        root.addView(tip);
-
         keywordInput = input("书名 / 资料名，可读取剪贴板", 1);
+        keywordInput.setSingleLine(true);
         keywordInput.setText(prefs.getString(KEY_KEYWORD, ""));
-        root.addView(keywordInput, new LinearLayout.LayoutParams(-1, -2));
+        root.addView(keywordInput, new LinearLayout.LayoutParams(-1, dp(40)));
 
-        urlInput = input("搜索网址，可含 {keyword}，例如：https://z-library.mn/?ts=0546", 2);
+        urlInput = input("搜索网址，可含 {keyword}", 1);
+        urlInput.setSingleLine(true);
         urlInput.setText(prefs.getString(KEY_LAST_URL, DEFAULT_URL));
-        root.addView(urlInput, new LinearLayout.LayoutParams(-1, -2));
+        root.addView(urlInput, new LinearLayout.LayoutParams(-1, dp(40)));
 
-        LinearLayout row1 = new LinearLayout(this);
-        row1.setOrientation(LinearLayout.HORIZONTAL);
-        row1.setPadding(0, dp(6), 0, dp(4));
+        LinearLayout row1 = actionRow();
         root.addView(row1);
         Button clip = button("读剪贴板", true);
         clip.setOnClickListener(v -> readClipboard());
@@ -153,23 +146,19 @@ public class WebAnalyzeActivity extends Activity {
         newTab.setOnClickListener(v -> openUrl(true));
         row1.addView(newTab, weight());
 
-        LinearLayout row2 = new LinearLayout(this);
-        row2.setOrientation(LinearLayout.HORIZONTAL);
-        row2.setPadding(0, dp(2), 0, dp(6));
+        LinearLayout row2 = actionRow();
         root.addView(row2);
         Button ai = button("AI判断当前页", true);
         ai.setOnClickListener(v -> analyzeCurrentPageWithAi());
         row2.addView(ai, weight());
-        Button analyze = button("分析当前页链接", true);
+        Button analyze = button("分析链接", true);
         analyze.setOnClickListener(v -> analyzePage());
         row2.addView(analyze, weight());
         Button api = button("API设置", false);
         api.setOnClickListener(v -> showApiDialog());
         row2.addView(api, weight());
 
-        LinearLayout row3 = new LinearLayout(this);
-        row3.setOrientation(LinearLayout.HORIZONTAL);
-        row3.setPadding(0, dp(2), 0, dp(6));
+        LinearLayout row3 = actionRow();
         root.addView(row3);
         Button waitBtn = button("等待并点下载", true);
         waitBtn.setOnClickListener(v -> startWaitDownload());
@@ -185,18 +174,20 @@ public class WebAnalyzeActivity extends Activity {
         tabScroll.setHorizontalScrollBarEnabled(false);
         tabStrip = new LinearLayout(this);
         tabStrip.setOrientation(LinearLayout.HORIZONTAL);
-        tabStrip.setPadding(0, 0, 0, dp(6));
+        tabStrip.setPadding(0, 0, 0, dp(4));
         tabScroll.addView(tabStrip);
-        root.addView(tabScroll, new LinearLayout.LayoutParams(-1, -2));
+        root.addView(tabScroll, new LinearLayout.LayoutParams(-1, dp(38)));
 
         webHolder = new FrameLayout(this);
+        webHolder.setBackgroundColor(Color.WHITE);
         root.addView(webHolder, new LinearLayout.LayoutParams(-1, 0, 1.0f));
 
         aiResultView = new TextView(this);
-        aiResultView.setText("AI判断结果会显示在这里。API Key只保存在本机。 ");
+        aiResultView.setText(apiConfigured() ? "AI已配置：点击“AI判断当前页”后会提示连接状态，符合时会自动尝试下载。" : "AI未配置：请点“API设置”填写API Key。 ");
         aiResultView.setTextSize(12);
+        aiResultView.setMaxLines(4);
         aiResultView.setTextColor(Color.parseColor("#263248"));
-        aiResultView.setPadding(dp(8), dp(7), dp(8), dp(7));
+        aiResultView.setPadding(dp(8), dp(5), dp(8), dp(5));
         aiResultView.setBackground(boxBg(Color.WHITE, "#D8E0EC"));
         root.addView(aiResultView, new LinearLayout.LayoutParams(-1, -2));
 
@@ -204,14 +195,26 @@ public class WebAnalyzeActivity extends Activity {
         resultBox = new LinearLayout(this);
         resultBox.setOrientation(LinearLayout.VERTICAL);
         rs.addView(resultBox);
-        root.addView(rs, new LinearLayout.LayoutParams(-1, dp(220)));
+        root.addView(rs, new LinearLayout.LayoutParams(-1, dp(92)));
 
         logView = new TextView(this);
-        logView.setTextSize(11);
+        logView.setTextSize(10);
+        logView.setMaxLines(2);
         logView.setTextColor(Color.parseColor("#39445A"));
         root.addView(logView, new LinearLayout.LayoutParams(-1, -2));
 
         setContentView(root);
+    }
+
+    private LinearLayout actionRow() {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setPadding(0, dp(3), 0, dp(3));
+        return row;
+    }
+
+    private boolean apiConfigured() {
+        return prefs != null && prefs.getString(KEY_API_KEY, "").trim().length() > 0;
     }
 
     private void addTab(String url, boolean loadNow) {
@@ -284,7 +287,7 @@ public class WebAnalyzeActivity extends Activity {
         BrowserTab tab = tabs.get(index);
         webHolder.addView(tab.webView, new FrameLayout.LayoutParams(-1, -1));
         urlInput.setText(tab.url);
-        aiResultView.setText(tab.aiResult.length() > 0 ? tab.aiResult : "AI判断结果会显示在这里。API Key只保存在本机。 ");
+        aiResultView.setText(tab.aiResult.length() > 0 ? tab.aiResult : (apiConfigured() ? "AI已配置：点击“AI判断当前页”后会提示连接状态，符合时会自动尝试下载。" : "AI未配置：请点“API设置”填写API Key。"));
         updateTabs();
     }
 
@@ -316,7 +319,7 @@ public class WebAnalyzeActivity extends Activity {
             name.setTextColor(i == currentIndex ? Color.WHITE : Color.parseColor("#263248"));
             name.setGravity(Gravity.CENTER_VERTICAL);
             name.setOnClickListener(v -> switchTo(index));
-            item.addView(name, new LinearLayout.LayoutParams(dp(105), dp(34)));
+            item.addView(name, new LinearLayout.LayoutParams(dp(105), dp(32)));
             TextView close = new TextView(this);
             close.setText("×");
             close.setTextSize(18);
@@ -324,8 +327,8 @@ public class WebAnalyzeActivity extends Activity {
             close.setGravity(Gravity.CENTER);
             close.setTextColor(i == currentIndex ? Color.WHITE : Color.parseColor("#D64545"));
             close.setOnClickListener(v -> closeTab(index));
-            item.addView(close, new LinearLayout.LayoutParams(dp(28), dp(34)));
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, dp(34));
+            item.addView(close, new LinearLayout.LayoutParams(dp(28), dp(32)));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, dp(32));
             lp.setMargins(0, 0, dp(6), 0);
             tabStrip.addView(item, lp);
         }
@@ -339,8 +342,8 @@ public class WebAnalyzeActivity extends Activity {
         EditText e = new EditText(this);
         e.setHint(hint);
         e.setMinLines(lines);
-        e.setTextSize(15);
-        e.setPadding(dp(9), dp(7), dp(9), dp(7));
+        e.setTextSize(14);
+        e.setPadding(dp(9), 0, dp(9), 0);
         e.setTextColor(Color.parseColor("#151B2D"));
         e.setHintTextColor(Color.parseColor("#9AA4B5"));
         e.setBackground(boxBg(Color.WHITE, "#D8E0EC"));
@@ -352,6 +355,9 @@ public class WebAnalyzeActivity extends Activity {
         b.setText(text);
         b.setTextSize(12);
         b.setAllCaps(false);
+        b.setMinHeight(0);
+        b.setMinimumHeight(0);
+        b.setPadding(dp(4), 0, dp(4), 0);
         b.setTextColor(primary ? Color.WHITE : Color.parseColor("#2F6BFF"));
         b.setBackground(boxBg(primary ? Color.parseColor("#2F6BFF") : Color.parseColor("#EEF3FF"), primary ? "#2F6BFF" : "#C9D8FF"));
         return b;
@@ -366,7 +372,7 @@ public class WebAnalyzeActivity extends Activity {
     }
 
     private LinearLayout.LayoutParams weight() {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(36), 1);
         lp.setMargins(dp(2), 0, dp(2), 0);
         return lp;
     }
@@ -425,14 +431,14 @@ public class WebAnalyzeActivity extends Activity {
             showLocalAiResult(tab, keyword, "当前无网络，先做本地关键词判断。");
             return;
         }
-        aiResultView.setText("正在读取当前网页文字...");
+        aiResultView.setText("正在连接AI并读取当前网页文字...");
         w.evaluateJavascript("(function(){return document.body ? document.body.innerText : document.documentElement.innerText;})()", value -> {
             String pageText = decodeJsString(value);
             if (pageText.trim().length() < 8) {
                 showLocalAiResult(tab, keyword, "没有读到足够网页文字，可能页面未加载完成或内容在图片里。");
                 return;
             }
-            aiResultView.setText("已读取 " + pageText.length() + " 字，正在请求AI判断...");
+            aiResultView.setText("AI连接中：已读取 " + pageText.length() + " 字，正在判断...");
             callAiJudge(tab, keyword, tab.url, pageText);
         });
     }
@@ -468,7 +474,7 @@ public class WebAnalyzeActivity extends Activity {
                 AiResult result = parseAiResponse(raw);
                 runOnUiThread(() -> showAiResult(tab, keyword, result));
             } catch (Exception e) {
-                runOnUiThread(() -> showLocalAiResult(tab, keyword, "AI请求失败：" + e.getMessage() + "\n已退回本地关键词判断。"));
+                runOnUiThread(() -> showLocalAiResult(tab, keyword, "AI连接失败：" + e.getMessage() + "\n已退回本地关键词判断。"));
             }
         }).start();
     }
@@ -493,13 +499,20 @@ public class WebAnalyzeActivity extends Activity {
     }
 
     private void showAiResult(BrowserTab tab, String keyword, AiResult r) {
-        String text = (r.match ? "符合" : "不符合") + "  置信度：" + r.confidence + "%\n" +
+        String text = "AI已连接\n" +
+                (r.match ? "符合" : "不符合") + "  置信度：" + r.confidence + "%\n" +
                 "目标书名：" + keyword + "\n" +
                 (r.matchedTitle.length() > 0 ? "网页命中：" + r.matchedTitle + "\n" : "") +
                 "原因：" + r.reason;
         tab.aiResult = text;
         if (tab == currentTab()) aiResultView.setText(text);
-        log("AI判断完成：" + (r.match ? "符合" : "不符合") + "，置信度 " + r.confidence + "%");
+        log("AI已连接，判断完成：" + (r.match ? "符合" : "不符合") + "，置信度 " + r.confidence + "%");
+        toast("AI已连接，判断完成");
+        if (r.match && r.confidence >= AUTO_DOWNLOAD_CONFIDENCE) {
+            log("AI判断符合，开始自动分析并尝试下载最高匹配链接");
+            toast("AI判断符合，开始自动下载");
+            autoDownloadAfterAiMatch(tab, keyword);
+        }
     }
 
     private void showLocalAiResult(BrowserTab tab, String keyword, String prefix) {
@@ -510,6 +523,32 @@ public class WebAnalyzeActivity extends Activity {
             String text = prefix + "\n本地判断：" + (contains ? "可能符合" : "暂未发现完整书名") + "\n目标书名：" + keyword;
             tab.aiResult = text;
             if (tab == currentTab()) aiResultView.setText(text);
+        });
+    }
+
+    private void autoDownloadAfterAiMatch(BrowserTab tab, String keyword) {
+        WebView w = tab.webView;
+        w.evaluateJavascript(linkExtractJs(), value -> {
+            ArrayList<Item> list = collectItems(value, keyword);
+            if (!list.isEmpty()) {
+                Item direct = null;
+                for (Item it : list) {
+                    if (isDirectFile(it.url)) { direct = it; break; }
+                }
+                if (direct != null && direct.score >= 15) {
+                    String ua = w.getSettings().getUserAgentString();
+                    log("AI符合，已找到直链，自动下载：" + direct.title);
+                    downloadWithCookies(direct.url, safeName(direct.title), null, ua);
+                    return;
+                }
+                Item best = list.get(0);
+                log("AI符合，但当前页不是直链，自动进入最高匹配页面：" + best.title);
+                w.loadUrl(best.url);
+                handler.postDelayed(this::startWaitDownload, 4500);
+                return;
+            }
+            log("AI符合，但没有识别到候选链接，开始等待并点击当前页下载按钮");
+            startWaitDownload();
         });
     }
 
@@ -542,6 +581,7 @@ public class WebAnalyzeActivity extends Activity {
                             .putString(KEY_MODEL, model.getText().toString().trim())
                             .putString(KEY_API_KEY, apiKey.getText().toString().trim())
                             .apply();
+                    aiResultView.setText("AI已配置：点击“AI判断当前页”会连接AI，连接成功会提示；符合时会自动下载。 ");
                     toast("API设置已保存");
                 })
                 .setNegativeButton("取消", null)
@@ -635,7 +675,16 @@ public class WebAnalyzeActivity extends Activity {
     private void analyzePage() {
         WebView w = currentWebView();
         if (w == null) { toast("没有打开的网页窗口"); return; }
-        String js = "(function(){" +
+        w.evaluateJavascript(linkExtractJs(), value -> {
+            items.clear();
+            items.addAll(collectItems(value, keywordInput.getText().toString().trim()));
+            showItems();
+            log("当前页候选链接：" + items.size() + " 个");
+        });
+    }
+
+    private String linkExtractJs() {
+        return "(function(){" +
                 "function clean(s){return (s||'').replace(/\\s+/g,' ').trim();}" +
                 "function goodText(s){s=clean(s); if(!s)return ''; if(s.length>180)s=s.substring(0,180); return s;}" +
                 "function titleOf(a){" +
@@ -651,15 +700,12 @@ public class WebAnalyzeActivity extends Activity {
                 "var arr=[].slice.call(document.querySelectorAll('a'));" +
                 "return JSON.stringify(arr.map(function(a){return {t:titleOf(a),lt:clean(a.innerText||a.textContent||a.title||''),u:a.href||'',cls:a.className||''};}).filter(function(x){return x.u;}));" +
                 "})()";
-        w.evaluateJavascript(js, value -> parseJsResult(value));
     }
 
-    private void parseJsResult(String value) {
-        items.clear();
-        resultBox.removeAllViews();
+    private ArrayList<Item> collectItems(String value, String key) {
+        ArrayList<Item> out = new ArrayList<>();
         try {
             JSONArray arr = new JSONArray(unwrapJsonString(value));
-            String key = keywordInput.getText().toString().trim();
             LinkedHashSet<String> seen = new LinkedHashSet<>();
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject o = arr.getJSONObject(i);
@@ -672,15 +718,14 @@ public class WebAnalyzeActivity extends Activity {
                 String displayTitle = pickTitle(title, linkText, url);
                 int score = score(key, displayTitle + " " + linkText + " " + url);
                 String type = isDirectFile(url) ? "直链文件" : "页面/详情/下载按钮";
-                items.add(new Item(displayTitle, linkText, url, score, type));
+                out.add(new Item(displayTitle, linkText, url, score, type));
             }
-            items.sort((a, b) -> b.score - a.score);
-            showItems();
-            log("当前页候选链接：" + items.size() + " 个");
+            out.sort((a, b) -> b.score - a.score);
         } catch (Exception e) {
             toast("分析失败：" + e.getMessage());
             log("分析失败：" + e.getMessage());
         }
+        return out;
     }
 
     private String pickTitle(String title, String linkText, String url) {
@@ -709,28 +754,29 @@ public class WebAnalyzeActivity extends Activity {
         resultBox.removeAllViews();
         if (items.isEmpty()) {
             TextView none = new TextView(this);
-            none.setText("当前页没有识别到明显下载链接。可以进入书籍详情页、点一次页面上的 Download 按钮，或用“等待并点下载”处理倒计时下载页。");
+            none.setText("当前页没有识别到明显下载链接。可进入详情页，或用“等待并点下载”。");
+            none.setTextSize(12);
             none.setTextColor(Color.parseColor("#5B6475"));
             resultBox.addView(none);
             return;
         }
-        int max = Math.min(items.size(), 25);
+        int max = Math.min(items.size(), 8);
         for (int i = 0; i < max; i++) {
             Item it = items.get(i);
             LinearLayout card = new LinearLayout(this);
             card.setOrientation(LinearLayout.VERTICAL);
-            card.setPadding(dp(8), dp(8), dp(8), dp(8));
+            card.setPadding(dp(8), dp(6), dp(8), dp(6));
             card.setBackground(boxBg(Color.WHITE, "#D8E0EC"));
 
             TextView tv = new TextView(this);
-            tv.setText("书名/标题：" + it.title + "\n类型：" + it.type + "    匹配度：" + it.score + "%\n链接文字：" + it.linkText + "\n链接：" + it.url);
-            tv.setTextSize(12);
+            tv.setText(it.type + "  匹配度：" + it.score + "%\n" + it.title + "\n" + it.url);
+            tv.setTextSize(11);
             tv.setTextColor(Color.parseColor("#263248"));
             card.addView(tv);
 
             LinearLayout row1 = new LinearLayout(this);
             row1.setOrientation(LinearLayout.HORIZONTAL);
-            row1.setPadding(0, dp(6), 0, 0);
+            row1.setPadding(0, dp(4), 0, 0);
             Button down = button(isDirectFile(it.url) ? "直接下载" : "尝试下载", true);
             down.setOnClickListener(v -> {
                 WebView w = currentWebView();
@@ -738,27 +784,16 @@ public class WebAnalyzeActivity extends Activity {
                 downloadWithCookies(it.url, safeName(it.title), null, ua);
             });
             row1.addView(down, weight());
-            Button openIn = button("当前窗口打开", false);
+            Button openIn = button("当前打开", false);
             openIn.setOnClickListener(v -> { WebView w = currentWebView(); if (w != null) w.loadUrl(it.url); });
             row1.addView(openIn, weight());
-            Button openNew = button("新窗口打开", false);
+            Button openNew = button("新窗口", false);
             openNew.setOnClickListener(v -> addTab(it.url, true));
             row1.addView(openNew, weight());
             card.addView(row1);
 
-            LinearLayout row2 = new LinearLayout(this);
-            row2.setOrientation(LinearLayout.HORIZONTAL);
-            row2.setPadding(0, dp(4), 0, dp(8));
-            Button browser = button("浏览器打开", false);
-            browser.setOnClickListener(v -> startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(it.url))));
-            row2.addView(browser, weight());
-            Button copy = button("复制链接", false);
-            copy.setOnClickListener(v -> copyLink(it.url));
-            row2.addView(copy, weight());
-            card.addView(row2);
-
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-            lp.setMargins(0, 0, 0, dp(8));
+            lp.setMargins(0, 0, 0, dp(6));
             resultBox.addView(card, lp);
         }
     }
@@ -784,7 +819,7 @@ public class WebAnalyzeActivity extends Activity {
             if (mimetype != null) req.setMimeType(mimetype);
             req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, safe);
             if (dm != null) dm.enqueue(req);
-            toast("已交给系统下载器；若无进度，请用“网页打开/浏览器打开”");
+            toast("已交给系统下载器；若无进度，请用网页打开确认");
             log("下载尝试：" + url);
         } catch (Exception e) {
             toast("下载失败：" + e.getMessage());
