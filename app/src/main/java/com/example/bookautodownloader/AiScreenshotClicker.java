@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.os.SystemClock;
+import android.util.Base64;
 import android.view.MotionEvent;
 import android.webkit.WebView;
 import android.widget.Toast;
@@ -19,7 +20,6 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.util.Base64;
 
 public class AiScreenshotClicker {
     public interface Callback {
@@ -48,7 +48,7 @@ public class AiScreenshotClicker {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         bitmap.compress(Bitmap.CompressFormat.JPEG, 72, baos);
         bitmap.recycle();
-        String base64 = Base64.getEncoder().encodeToString(baos.toByteArray());
+        String base64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP);
 
         String finalApiUrl = (apiUrl == null || apiUrl.trim().length() == 0) ? "https://api.openai.com/v1/chat/completions" : apiUrl.trim();
         String finalModel = (model == null || model.trim().length() == 0) ? "gpt-4.1-mini" : model.trim();
