@@ -155,7 +155,7 @@ public class WebAnalyzeActivity extends Activity {
         root.addView(webHolder, new LinearLayout.LayoutParams(-1, 0, 1.0f));
 
         aiResultView = new TextView(this);
-        aiResultView.setText(apiConfigured() ? "AI已配置：符合时会先点击当前书籍卡片的下载图标。" : "AI未配置：请点“API设置”填写API Key。");
+        aiResultView.setText(apiConfigured() ? "AI已配置：符合时会先用图片分析判断点击位置。" : "AI未配置：请点“API设置”填写API Key。");
         aiResultView.setTextSize(12);
         aiResultView.setMaxLines(4);
         aiResultView.setTextColor(Color.parseColor("#263248"));
@@ -243,7 +243,7 @@ public class WebAnalyzeActivity extends Activity {
         BrowserTab tab = tabs.get(index);
         webHolder.addView(tab.webView, new FrameLayout.LayoutParams(-1, -1));
         urlInput.setText(tab.url);
-        aiResultView.setText(tab.aiResult.length() > 0 ? tab.aiResult : (apiConfigured() ? "AI已配置：符合时会先点击当前书籍卡片的下载图标。" : "AI未配置：请点“API设置”填写API Key。"));
+        aiResultView.setText(tab.aiResult.length() > 0 ? tab.aiResult : (apiConfigured() ? "AI已配置：符合时会先用图片分析判断点击位置。" : "AI未配置：请点“API设置”填写API Key。"));
         updateTabs();
     }
 
@@ -408,8 +408,8 @@ public class WebAnalyzeActivity extends Activity {
         log("AI已连接，判断完成：" + (r.match ? "符合" : "不符合") + "，置信度 " + r.confidence + "%");
         toast("AI已连接，判断完成");
         if (r.match && r.confidence >= AUTO_DOWNLOAD_CONFIDENCE) {
-            log("AI判断符合，优先点击当前卡片下载按钮");
-            toast("AI判断符合，正在点击下载按钮");
+            log("AI判断符合，开始图片分析点击位置");
+            toast("AI判断符合，开始图片分析点击");
             autoDownloadAfterAiMatch(tab, keyword);
         }
     }
@@ -427,26 +427,38 @@ public class WebAnalyzeActivity extends Activity {
 
     private void autoDownloadAfterAiMatch(BrowserTab tab, String keyword) {
         WebView w = tab.webView;
-        clickVisibleDownloadButton(w, keyword, "AI符合", clicked -> {
-            if (clicked) return;
-            w.evaluateJavascript(linkExtractJs(), value -> {
-                ArrayList<Item> list = collectItems(value, keyword);
-                Item direct = null;
-                for (Item it : list) if (isDirectFile(it.url)) { direct = it; break; }
-                if (direct != null && direct.score >= 15) {
-                    log("AI符合，已找到直链，自动下载：" + direct.title);
-                    downloadWithCookies(direct.url, safeName(direct.title), null, w.getSettings().getUserAgentString());
-                } else if (!list.isEmpty()) {
-                    Item best = list.get(0);
-                    log("AI符合，但当前页不是直链，自动进入最高匹配页面：" + best.title);
-                    w.loadUrl(best.url);
-                    handler.postDelayed(() -> clickVisibleDownloadButton(w, keyword, "进入详情页后", ok -> { if (!ok) startWaitDownload(); }), 4500);
-                } else {
-                    log("AI符合，但没有识别到候选链接，继续监测下载按钮");
-                    startWaitDownload();
+        AiScreenshotClicker.clickDownloadByVision(
+                this,
+                w,
+                keyword,
+                prefs.getString(KEY_API_URL, DEFAULT_API_URL),
+                prefs.getString(KEY_API_KEY, ""),
+                prefs.getString(KEY_MODEL, DEFAULT_MODEL),
+                (visionClicked, visionReason) -> {
+                    log(visionReason);
+                    if (visionClicked) return;
+                    clickVisibleDownloadButton(w, keyword, "视觉失败后DOM识别", clicked -> {
+                        if (clicked) return;
+                        w.evaluateJavascript(linkExtractJs(), value -> {
+                            ArrayList<Item> list = collectItems(value, keyword);
+                            Item direct = null;
+                            for (Item it : list) if (isDirectFile(it.url)) { direct = it; break; }
+                            if (direct != null && direct.score >= 15) {
+                                log("AI符合，已找到直链，自动下载：" + direct.title);
+                                downloadWithCookies(direct.url, safeName(direct.title), null, w.getSettings().getUserAgentString());
+                            } else if (!list.isEmpty()) {
+                                Item best = list.get(0);
+                                log("AI符合，但当前页不是直链，自动进入最高匹配页面：" + best.title);
+                                w.loadUrl(best.url);
+                                handler.postDelayed(() -> AiScreenshotClicker.clickDownloadByVision(this, w, keyword, prefs.getString(KEY_API_URL, DEFAULT_API_URL), prefs.getString(KEY_API_KEY, ""), prefs.getString(KEY_MODEL, DEFAULT_MODEL), (ok, why) -> { log(why); if (!ok) startWaitDownload(); }), 4500);
+                            } else {
+                                log("AI符合，但没有识别到候选链接，继续监测下载按钮");
+                                startWaitDownload();
+                            }
+                        });
+                    });
                 }
-            });
-        });
+        );
     }
 
     private interface BoolCallback { void done(boolean value); }
@@ -458,16 +470,9 @@ public class WebAnalyzeActivity extends Activity {
             try {
                 JSONObject o = new JSONObject(unwrapJsonString(value));
                 clicked = o.optBoolean("clicked", false);
-                if (clicked) {
-                    String why = o.optString("why", "下载按钮");
-                    log(source + "：已点击网页下载按钮（" + why + "）");
-                    toast("已点击网页下载按钮");
-                } else {
-                    log(source + "：未直接点到下载图标，改用链接分析");
-                }
-            } catch (Exception e) {
-                log(source + "：下载按钮识别返回异常，改用链接分析");
-            }
+                if (clicked) { String why = o.optString("why", "下载按钮"); log(source + "：已点击网页下载按钮（" + why + "）"); toast("已点击网页下载按钮"); }
+                else log(source + "：未直接点到下载图标，改用链接分析");
+            } catch (Exception e) { log(source + "：下载按钮识别返回异常，改用链接分析"); }
             cb.done(clicked);
         });
     }
@@ -509,7 +514,7 @@ public class WebAnalyzeActivity extends Activity {
         box.addView(dialogLabel("API Key（只保存在本机）")); box.addView(apiKey, new LinearLayout.LayoutParams(-1, dp(48)));
         new AlertDialog.Builder(this).setTitle("AI API 设置").setView(box).setPositiveButton("保存", (d, w) -> {
             prefs.edit().putString(KEY_API_URL, apiUrl.getText().toString().trim()).putString(KEY_MODEL, model.getText().toString().trim()).putString(KEY_API_KEY, apiKey.getText().toString().trim()).apply();
-            aiResultView.setText("AI已配置：符合时会先点击当前书籍卡片的下载图标。"); toast("API设置已保存");
+            aiResultView.setText("AI已配置：符合时会先用图片分析判断点击位置。"); toast("API设置已保存");
         }).setNegativeButton("取消", null).show();
     }
 
