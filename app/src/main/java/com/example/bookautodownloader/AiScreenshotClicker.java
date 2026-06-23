@@ -27,6 +27,10 @@ public class AiScreenshotClicker {
     }
 
     public static void clickDownloadByVision(Activity activity, WebView webView, String keyword, String apiUrl, String apiKey, String model, Callback callback) {
+        clickDownloadByVisionInternal(activity, webView, keyword, apiUrl, apiKey, model, true, callback);
+    }
+
+    private static void clickDownloadByVisionInternal(Activity activity, WebView webView, String keyword, String apiUrl, String apiKey, String model, boolean allowDetailClick, Callback callback) {
         if (activity == null || webView == null) {
             if (callback != null) callback.done(false, "没有可分析的网页窗口");
             return;
@@ -59,19 +63,24 @@ public class AiScreenshotClicker {
                 JSONObject body = new JSONObject();
                 body.put("model", finalModel);
                 body.put("temperature", 0);
-                body.put("max_tokens", 300);
+                body.put("max_tokens", 320);
 
                 JSONArray messages = new JSONArray();
                 messages.put(new JSONObject()
                         .put("role", "system")
-                        .put("content", "你是手机网页截图点击决策器。只根据截图判断应该点击哪里。必须只返回JSON，不要Markdown。格式：{\"click\":true/false,\"x\":数字,\"y\":数字,\"confidence\":0-100,\"reason\":\"\"}。x/y是截图像素坐标，原点在截图左上角。"));
+                        .put("content", "你是手机网页截图点击决策器。只根据截图判断应该点击哪里。必须只返回JSON，不要Markdown。格式：{\"click\":true/false,\"action\":\"download/detail/none\",\"x\":数字,\"y\":数字,\"confidence\":0-100,\"reason\":\"\"}。x/y是截图像素坐标，原点在截图左上角。"));
 
+                String detailRule = allowDetailClick
+                        ? "如果当前只是搜索结果列表，看不到下载按钮，但能看到与目标书名匹配且带下划线/明显可点击的书名链接，则点击该书名进入详情页，action=detail。\n"
+                        : "当前已经进入过详情页尝试，禁止再点击书名链接；只找下载按钮，找不到就 click=false。\n";
                 JSONArray content = new JSONArray();
                 content.put(new JSONObject().put("type", "text").put("text",
                         "目标书名：" + finalKeyword + "\n" +
-                        "任务：从这张手机网页截图中，找到与目标书名对应的下载按钮/下载图标/向下箭头按钮，并返回点击坐标。\n" +
-                        "优先点击当前书籍卡片右侧的下载图标，不要点击收藏、书签、更多、标签、头像、个人中心、通知、播放/预览。\n" +
-                        "如果看不到下载按钮，返回 click=false。"));
+                        "任务：从这张手机网页截图中判断下一步应点击哪里。\n" +
+                        "优先级1：如果当前目标书籍卡片或详情页里有下载按钮、下载图标、向下箭头、PDF/EPUB下载入口，点击它，action=download。\n" +
+                        "优先级2：" + detailRule +
+                        "不要点击收藏、书签、更多、标签、头像、个人中心、通知、播放/预览、广告。\n" +
+                        "如果目标书名不匹配或看不到可靠入口，返回 click=false, action=none。"));
                 content.put(new JSONObject()
                         .put("type", "image_url")
                         .put("image_url", new JSONObject().put("url", "data:image/jpeg;base64," + base64)));
@@ -97,6 +106,7 @@ public class AiScreenshotClicker {
                 String answer = root.getJSONArray("choices").getJSONObject(0).getJSONObject("message").getString("content").trim();
                 JSONObject result = extractJson(answer);
                 boolean click = result.optBoolean("click", false);
+                String action = result.optString("action", "download").toLowerCase();
                 int x = result.optInt("x", -1);
                 int y = result.optInt("y", -1);
                 int confidence = result.optInt("confidence", 0);
@@ -105,10 +115,15 @@ public class AiScreenshotClicker {
                 activity.runOnUiThread(() -> {
                     if (click && confidence >= 50 && x >= 0 && y >= 0 && x <= webView.getWidth() && y <= webView.getHeight()) {
                         performClick(webView, x, y);
-                        Toast.makeText(activity, "AI图片分析已点击下载位置", Toast.LENGTH_SHORT).show();
-                        if (callback != null) callback.done(true, "AI图片分析点击：" + reason);
+                        if ("detail".equals(action) && allowDetailClick) {
+                            Toast.makeText(activity, "AI图片分析已点击书名进入详情页", Toast.LENGTH_SHORT).show();
+                            webView.postDelayed(() -> clickDownloadByVisionInternal(activity, webView, finalKeyword, finalApiUrl, apiKey, finalModel, false, callback), 4500);
+                        } else {
+                            Toast.makeText(activity, "AI图片分析已点击下载位置", Toast.LENGTH_SHORT).show();
+                            if (callback != null) callback.done(true, "AI图片分析点击下载：" + reason);
+                        }
                     } else {
-                        if (callback != null) callback.done(false, "AI图片分析未找到可靠下载按钮：" + reason);
+                        if (callback != null) callback.done(false, "AI图片分析未找到可靠入口：" + reason);
                     }
                 });
             } catch (Exception e) {
