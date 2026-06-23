@@ -61,7 +61,7 @@ public class WebAnalyzeActivity extends Activity {
     private static final String KEY_LAST_URL = "last_url";
     private static final String KEY_KEYWORD = "keyword";
     private static final String DEFAULT_API_URL = "https://api.openai.com/v1/chat/completions";
-    private static final String DEFAULT_MODEL = "gpt-4.1-mini";
+    private static final String DEFAULT_MODEL = "gpt-4o-mini";
     private static final String DEFAULT_URL = "https://z-library.mn/?ts=0546";
     private static final int PAGE_TEXT_LIMIT = 12000;
     private static final int AUTO_DOWNLOAD_CONFIDENCE = 60;
@@ -77,6 +77,7 @@ public class WebAnalyzeActivity extends Activity {
     private final ArrayList<Item> items = new ArrayList<>();
     private final Handler handler = new Handler(Looper.getMainLooper());
     private SharedPreferences prefs;
+    private ClickRecipeAutomation clickRecipe;
     private int currentIndex = -1;
     private boolean waitRunning = false;
     private int waitTicks = 0;
@@ -84,6 +85,7 @@ public class WebAnalyzeActivity extends Activity {
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
         prefs = getSharedPreferences(PREF, MODE_PRIVATE);
+        clickRecipe = new ClickRecipeAutomation(this, prefs, handler, this::currentWebView, this::log);
         if (Build.VERSION.SDK_INT >= 19) WebView.setWebContentsDebuggingEnabled(true);
         buildUi();
         addTab(prefs.getString(KEY_LAST_URL, DEFAULT_URL), false);
@@ -141,6 +143,11 @@ public class WebAnalyzeActivity extends Activity {
         Button waitBtn = button("等待并点下载", true); waitBtn.setOnClickListener(v -> startWaitDownload()); row3.addView(waitBtn, weight());
         Button stopBtn = button("停止等待", false); stopBtn.setOnClickListener(v -> stopWaitDownload()); row3.addView(stopBtn, weight());
         Button backBtn = button("网页返回", false); backBtn.setOnClickListener(v -> { WebView w = currentWebView(); if (w != null && w.canGoBack()) w.goBack(); }); row3.addView(backBtn, weight());
+
+        LinearLayout row4 = actionRow(); root.addView(row4);
+        Button rec = button("开始录制", true); rec.setOnClickListener(v -> clickRecipe.startRecording()); row4.addView(rec, weight());
+        Button saveRec = button("保存录制", false); saveRec.setOnClickListener(v -> clickRecipe.saveRecording()); row4.addView(saveRec, weight());
+        Button runRec = button("执行录制", true); runRec.setOnClickListener(v -> clickRecipe.runRecording()); row4.addView(runRec, weight());
 
         HorizontalScrollView tabScroll = new HorizontalScrollView(this);
         tabScroll.setHorizontalScrollBarEnabled(false);
@@ -203,10 +210,12 @@ public class WebAnalyzeActivity extends Activity {
         if (Build.VERSION.SDK_INT >= 21) s.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
         CookieManager.getInstance().setAcceptCookie(true);
         if (Build.VERSION.SDK_INT >= 21) CookieManager.getInstance().setAcceptThirdPartyCookies(w, true);
+        if (clickRecipe != null) clickRecipe.attach(w);
         w.setWebViewClient(new WebViewClient() {
             @Override public void onPageFinished(WebView view, String url) {
                 BrowserTab tab = findTab(view);
                 if (tab != null) { tab.url = url == null ? tab.url : url; prefs.edit().putString(KEY_LAST_URL, tab.url).apply(); updateTabs(); }
+                if (clickRecipe != null) clickRecipe.onPageFinished(view);
                 log("加载完成：" + shorten(url, 90));
             }
         });
