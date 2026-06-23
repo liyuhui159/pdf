@@ -60,8 +60,8 @@ public class WebAnalyzeActivity extends Activity {
     private static final String KEY_MODEL = "model";
     private static final String KEY_LAST_URL = "last_url";
     private static final String KEY_KEYWORD = "keyword";
-    private static final String DEFAULT_API_URL = "https://api.openai.com/v1/chat/completions";
-    private static final String DEFAULT_MODEL = "gpt-4o-mini";
+    private static final String DEFAULT_API_URL = "https://api.deepseek.com/chat/completions";
+    private static final String DEFAULT_MODEL = "deepseek-v4-flash";
     private static final String DEFAULT_URL = "https://z-library.mn/?ts=0546";
     private static final int PAGE_TEXT_LIMIT = 12000;
     private static final int AUTO_DOWNLOAD_CONFIDENCE = 60;
@@ -85,7 +85,7 @@ public class WebAnalyzeActivity extends Activity {
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
         prefs = getSharedPreferences(PREF, MODE_PRIVATE);
-        clickRecipe = new ClickRecipeAutomation(this, prefs, handler, this::currentWebView, this::log);
+        clickRecipe = new ClickRecipeAutomation(this, prefs, handler, this::currentWebView, this::currentKeyword, this::log);
         if (Build.VERSION.SDK_INT >= 19) WebView.setWebContentsDebuggingEnabled(true);
         buildUi();
         addTab(prefs.getString(KEY_LAST_URL, DEFAULT_URL), false);
@@ -295,6 +295,7 @@ public class WebAnalyzeActivity extends Activity {
     }
 
     private WebView currentWebView() { return currentIndex >= 0 && currentIndex < tabs.size() ? tabs.get(currentIndex).webView : null; }
+    private String currentKeyword() { return keywordInput == null ? "" : keywordInput.getText().toString().trim(); }
     private BrowserTab currentTab() { return currentIndex >= 0 && currentIndex < tabs.size() ? tabs.get(currentIndex) : null; }
     private BrowserTab findTab(WebView webView) { for (BrowserTab tab : tabs) if (tab.webView == webView) return tab; return null; }
 
