@@ -4,6 +4,8 @@ on:
   workflow_dispatch:
   push:
     branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
 
 jobs:
   build:
@@ -42,3 +44,4 @@ jobs:
         with:
           name: book-auto-downloader-debug-apk
           path: output/book-auto-downloader-debug.apk
+          retention-days: 14
