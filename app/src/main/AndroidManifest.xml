@@ -8,7 +8,14 @@
         android:allowBackup="true"
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="true"
-        android:label="@string/app_name">
+        android:label="@string/app_name"
+        android:icon="@drawable/ic_book_search"
+        android:roundIcon="@drawable/ic_book_search">
+
+        <activity
+            android:name=".DownloadManagerActivity"
+            android:exported="false"
+            android:label="下载管理" />
 
         <activity
             android:name=".WebAnalyzeActivity"
