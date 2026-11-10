@@ -49,7 +49,8 @@ import java.util.regex.Pattern;
 
 public class MainActivity extends Activity {
     private EditText bookInput;
-    private EditText templatesInput;
+    private TextView sourceSummary;
+    private final ArrayList<SourceManager.Site> sites = new ArrayList<>();
     private EditText extInput;
     private CheckBox autoDownloadCheck;
     private LinearLayout resultBox;
@@ -118,25 +119,39 @@ public class MainActivity extends Activity {
         root.addView(searchCard);
 
         LinearLayout sourceCard = card();
-        addLabel(sourceCard, "资源站搜索网址模板，可添加多个");
+        addLabel(sourceCard, "搜索网站（独立编号，可勾选）");
         TextView sourceTip = new TextView(this);
-        sourceTip.setText("每行一个模板，必须包含 {keyword}。内置公版书源 Gutendex / Gutenberg，可自行添加允许下载的站点。");
+        sourceTip.setText("每个网站可单独启用/停用。粘贴普通网址时自动补全 {keyword}；不适用的网站可在弹窗中编辑。");
         sourceTip.setTextSize(12);
         sourceTip.setTextColor(Color.parseColor("#697386"));
         sourceTip.setPadding(0, 0, 0, dp(6));
         sourceCard.addView(sourceTip);
 
-        templatesInput = input("https://site1.com/search?q={keyword}\nhttps://site2.com/s/{keyword}", 5);
-        sourceCard.addView(templatesInput, new LinearLayout.LayoutParams(-1, -2));
+        sourceSummary = new TextView(this);
+        sourceSummary.setTextSize(14);
+        sourceSummary.setTextColor(Color.parseColor("#263248"));
+        sourceSummary.setPadding(dp(10), dp(14), dp(10), dp(14));
+        GradientDrawable srcBg = new GradientDrawable();
+        srcBg.setColor(Color.parseColor("#F9FBFE"));
+        srcBg.setCornerRadius(dp(9));
+        srcBg.setStroke(dp(1), Color.parseColor("#D8E0EC"));
+        sourceSummary.setBackground(srcBg);
+        sourceCard.addView(sourceSummary, new LinearLayout.LayoutParams(-1, -2));
 
         LinearLayout row2 = new LinearLayout(this);
         row2.setOrientation(LinearLayout.HORIZONTAL);
         row2.setPadding(0, dp(8), 0, 0);
         sourceCard.addView(row2);
-        Button save = secondaryButton("保存模板");
-        save.setOnClickListener(v -> saveSettings());
-        row2.addView(save, weight(1));
-        Button openAll = secondaryButton("打开全部搜索页");
+        Button manage = primaryButton("管理网站（勾选/新增）");
+        manage.setOnClickListener(v -> SourceManager.open(this, sites, updated -> {
+            sites.clear();
+            sites.addAll(updated);
+            saveSettings();
+            updateSourceSummary();
+            toast("网站列表已保存");
+        }));
+        row2.addView(manage, weight(1));
+        Button openAll = secondaryButton("打开勾选的网站");
         openAll.setOnClickListener(v -> openAllSearchPages());
         row2.addView(openAll, weight(1));
         root.addView(sourceCard);
@@ -168,11 +183,11 @@ public class MainActivity extends Activity {
         root.addView(optionCard);
 
         LinearLayout resultsCard = card();
-        addLabel(resultsCard, "搜索结果");
+        addLabel(resultsCard, "搜索结果（仅来自已勾选网站）");
         resultBox = new LinearLayout(this);
         resultBox.setOrientation(LinearLayout.VERTICAL);
         TextView empty = new TextView(this);
-        empty.setText("还没有搜索结果。先填写书名和模板，然后选择搜索方式。需要登录的网站请使用顶部的网页登录分析器。");
+        empty.setText("还没有搜索结果。先填写书名，在“管理网站”中勾选要搜索的站点。需要登录的网站可用顶部的网页登录分析器。");
         empty.setTextColor(Color.parseColor("#697386"));
         resultBox.addView(empty);
         resultsCard.addView(resultBox, new LinearLayout.LayoutParams(-1, -2));
@@ -267,66 +282,36 @@ public class MainActivity extends Activity {
 
     private void loadSettings() {
         SharedPreferences sp = getSharedPreferences(PREF, MODE_PRIVATE);
-        String saved = sp.getString("templates", DEFAULT_TEMPLATES);
-        if ("https://example.com/search?q={keyword}".equals(saved.trim())) saved = DEFAULT_TEMPLATES;
-        templatesInput.setText(saved);
+        sites.clear();
+        sites.addAll(SourceManager.load(this, DEFAULT_TEMPLATES));
+        updateSourceSummary();
         String extSaved = sp.getString("ext", "pdf,epub,mobi,txt,zip,rar,7z");
         if ("pdf,zip,rar,7z".equals(extSaved.trim())) extSaved = "pdf,epub,mobi,txt,zip,rar,7z";
         extInput.setText(extSaved);
         autoDownloadCheck.setChecked(sp.getBoolean("auto", false));
     }
 
+    private void updateSourceSummary() {
+        if (sourceSummary != null) sourceSummary.setText(SourceManager.summary(sites));
+    }
+
     private void saveSettings() {
-        String cleaned = joinTemplates(getTemplates(false));
-        if (cleaned.length() == 0) cleaned = templatesInput.getText().toString().trim();
+        SourceManager.save(this, sites);
         getSharedPreferences(PREF, MODE_PRIVATE).edit()
-                .putString("templates", cleaned)
                 .putString("ext", extInput.getText().toString().trim())
                 .putBoolean("auto", autoDownloadCheck.isChecked())
                 .apply();
-        templatesInput.setText(cleaned);
-        toast("已保存模板和设置");
     }
 
     private ArrayList<Source> getTemplates(boolean showToast) {
-        String[] lines = templatesInput.getText().toString().split("\\n");
-        LinkedHashSet<String> unique = new LinkedHashSet<>();
-        for (String line : lines) {
-            String t = normalizeTemplate(line);
-            if (t.length() == 0) continue;
-            unique.add(t);
-        }
         ArrayList<Source> list = new ArrayList<>();
-        int index = 1;
-        for (String t : unique) {
-            if (!t.contains("{keyword}") && !t.contains("{keyword_raw}")) {
-                if (showToast) toast("第 " + index + " 个模板缺少 {keyword}");
-                index++;
-                continue;
-            }
-            list.add(new Source("站点" + index, t));
-            index++;
+        for (SourceManager.Site s : SourceManager.selected(sites)) {
+            if (!(s.template.contains("{keyword}") || s.template.contains("{keyword_raw}"))) continue;
+            String siteName = "#" + String.format(Locale.ROOT, "%02d", s.id) + " " + s.name;
+            list.add(new Source(siteName, s.template));
         }
+        if (list.isEmpty() && showToast) toast("未勾选任何有效网站，请点“管理网站”选择");
         return list;
-    }
-
-    private String normalizeTemplate(String s) {
-        if (s == null) return "";
-        return s.trim()
-                .replace("｛", "{")
-                .replace("｝", "}")
-                .replace("{ keyword }", "{keyword}")
-                .replace("{关键词}", "{keyword}")
-                .replace("{书名}", "{keyword}");
-    }
-
-    private String joinTemplates(ArrayList<Source> sources) {
-        StringBuilder sb = new StringBuilder();
-        for (Source s : sources) {
-            if (sb.length() > 0) sb.append('\n');
-            sb.append(s.template);
-        }
-        return sb.toString();
     }
 
     private void readClipboard(boolean doSearch) {
