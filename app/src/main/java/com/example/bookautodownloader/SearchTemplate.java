@@ -85,7 +85,12 @@ public final class SearchTemplate {
                     if (QUERY_KEYS.contains(key.toLowerCase(Locale.ROOT))) {
                         fields[i] = key + "={keyword}";
                         String prefix = s.substring(0, s.indexOf('?') + 1);
-                        return new Conversion(prefix + String.join("&", fields), false,
+                        StringBuilder rebuilt = new StringBuilder(prefix);
+                        for (int j = 0; j < fields.length; j++) {
+                            if (j > 0) rebuilt.append('&');
+                            rebuilt.append(fields[j]);
+                        }
+                        return new Conversion(rebuilt.toString(), false,
                                 "已将原有搜索参数替换为书名关键词");
                     }
                 }
