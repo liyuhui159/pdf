@@ -5,6 +5,7 @@ import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.res.ColorStateList;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -13,7 +14,7 @@ import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.View;
-import android.view.inputmethod.InputMethodManager;
+import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
@@ -27,6 +28,9 @@ import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.Date;
+import java.text.SimpleDateFormat;
+import java.util.Locale;
 import java.util.Set;
 
 /** Modal editor for independently numbered, enabled/disabled ebook search sites. */
@@ -35,6 +39,12 @@ public final class SourceManager {
     private static final String KEY = "sites_json_v8";
     private static final int BLUE = Color.rgb(47, 107, 255);
     private static final int DARK = Color.rgb(38, 50, 72);
+    private static final int MUTED = Color.rgb(104, 118, 139);
+    private static final int BORDER = Color.rgb(220, 228, 241);
+    private static final int LIGHT = Color.rgb(245, 248, 253);
+    private static final int GREEN = Color.rgb(31, 126, 83);
+    private static final int AMBER = Color.rgb(161, 100, 29);
+    private static final int RED = Color.rgb(177, 72, 70);
 
     private SourceManager() {}
 
@@ -43,13 +53,22 @@ public final class SourceManager {
     public static class Site {
         public int id;
         public String name, template;
-        public boolean enabled, guessed;
+        public boolean enabled, guessed, testing;
+        public int checkLevel;
+        public String checkMessage = "";
+        public long checkedAt;
 
         public Site(int id, String name, String template, boolean enabled, boolean guessed) {
             this.id = id; this.name = name; this.template = template;
             this.enabled = enabled; this.guessed = guessed;
         }
-        public Site copy() { return new Site(id, name, template, enabled, guessed); }
+        public Site copy() {
+            Site copy = new Site(id, name, template, enabled, guessed);
+            copy.checkLevel = checkLevel;
+            copy.checkMessage = checkMessage;
+            copy.checkedAt = checkedAt;
+            return copy;
+        }
     }
 
     public static ArrayList<Site> load(Context context, String defaultTemplates) {
@@ -63,10 +82,14 @@ public final class SourceManager {
                     if (obj == null) continue;
                     String template = obj.optString("template", "");
                     if (!LinkResolver.webUrl(template) || !(template.contains("{keyword}") || template.contains("{keyword_raw}"))) continue;
-                    list.add(new Site(obj.optInt("id", i + 1),
+                    Site site = new Site(obj.optInt("id", i + 1),
                             obj.optString("name", SearchTemplate.defaultName(template)),
                             template, obj.optBoolean("enabled", true),
-                            obj.optBoolean("guessed", false)));
+                            obj.optBoolean("guessed", false));
+                    site.checkLevel = obj.optInt("checkLevel", 0);
+                    site.checkMessage = obj.optString("checkMessage", "");
+                    site.checkedAt = obj.optLong("checkedAt", 0L);
+                    list.add(site);
                 }
                 return list;
             } catch (Exception ignored) {
@@ -103,6 +126,9 @@ public final class SourceManager {
                 o.put("template", s.template);
                 o.put("enabled", s.enabled);
                 o.put("guessed", s.guessed);
+                o.put("checkLevel", s.checkLevel);
+                o.put("checkMessage", s.checkMessage);
+                o.put("checkedAt", s.checkedAt);
                 arr.put(o);
             } catch (Exception ignored) {}
             if (s.enabled) {
@@ -159,14 +185,81 @@ public final class SourceManager {
         return t;
     }
 
-    private static Button button(Context c, String value) {
+    private static GradientDrawable background(Context c, int fill, int stroke, int radiusDp) {
+        GradientDrawable d = new GradientDrawable();
+        d.setColor(fill);
+        d.setCornerRadius(dp(c, radiusDp));
+        d.setStroke(dp(c, 1), stroke);
+        return d;
+    }
+
+    private static Button action(Context c, String value, int kind) {
+        // kind: 0 = blue filled, 1 = neutral outlined, 2 = subtle danger
         Button b = new Button(c);
         b.setText(value);
         b.setTextSize(13);
+        b.setTypeface(Typeface.DEFAULT, kind == 0 ? Typeface.BOLD : Typeface.NORMAL);
         b.setAllCaps(false);
-        b.setTextColor(BLUE);
-        b.setMinHeight(dp(c, 40));
+        b.setMinHeight(0);
+        b.setMinimumHeight(0);
+        b.setPadding(dp(c, 7), 0, dp(c, 7), 0);
+        b.setTextColor(kind == 0 ? Color.WHITE : kind == 2 ? RED : BLUE);
+        b.setBackground(background(c,
+                kind == 0 ? BLUE : kind == 2 ? Color.rgb(255, 247, 247) : Color.WHITE,
+                kind == 0 ? BLUE : kind == 2 ? Color.rgb(245, 220, 220) : BORDER, 10));
         return b;
+    }
+
+    private static Button button(Context c, String value) {
+        return action(c, value, 1);
+    }
+
+    private static LinearLayout.LayoutParams weighted(Context c, float weight) {
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(c, 44), weight);
+        p.setMargins(dp(c, 3), 0, dp(c, 3), 0);
+        return p;
+    }
+
+    private static String checkedTime(long time) {
+        if (time == 0) return "";
+        return new SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(new Date(time));
+    }
+
+    private static void setStatus(TextView view, Site site) {
+        final int shade;
+        final String label;
+        if (site.testing) {
+            label = "正在验证网站和书名搜索…";
+            shade = BLUE;
+        } else if (site.checkLevel == SiteVerifier.CONFIRMED) {
+            label = "验证通过 · " + site.checkMessage;
+            shade = GREEN;
+        } else if (site.checkLevel == SiteVerifier.UNCERTAIN) {
+            label = "待确认 · " + site.checkMessage;
+            shade = AMBER;
+        } else if (site.checkLevel == SiteVerifier.FAILED) {
+            label = "验证失败 · " + site.checkMessage;
+            shade = RED;
+        } else {
+            label = "未验证 · 点击“验证”检查搜索接口";
+            shade = MUTED;
+        }
+        view.setText(label + (site.checkedAt > 0 && !site.testing
+                ? "\n上次校验：" + checkedTime(site.checkedAt) : ""));
+        view.setTextColor(shade);
+        view.setBackground(background(view.getContext(),
+                site.testing ? Color.rgb(237, 244, 255)
+                : site.checkLevel == SiteVerifier.CONFIRMED ? Color.rgb(235, 248, 241)
+                : site.checkLevel == SiteVerifier.UNCERTAIN ? Color.rgb(255, 249, 236)
+                : site.checkLevel == SiteVerifier.FAILED ? Color.rgb(255, 242, 242)
+                : LIGHT,
+                site.testing ? Color.rgb(208, 224, 255)
+                : site.checkLevel == SiteVerifier.CONFIRMED ? Color.rgb(205, 235, 219)
+                : site.checkLevel == SiteVerifier.UNCERTAIN ? Color.rgb(245, 231, 196)
+                : site.checkLevel == SiteVerifier.FAILED ? Color.rgb(245, 214, 214)
+                : BORDER, 8));
+        view.setPadding(dp(view.getContext(), 9), dp(view.getContext(), 7),
+                dp(view.getContext(), 9), dp(view.getContext(), 7));
     }
 
     private static EditText edit(Context c, String hint, String value) {
@@ -192,106 +285,170 @@ public final class SourceManager {
     }
 
     public static void open(Activity activity, ArrayList<Site> current,
-                            Saved onSaved) {
+                            String searchKeyword, Saved onSaved) {
         final ArrayList<Site> working = new ArrayList<>();
         for (Site site : current) working.add(site.copy());
 
+        final String probeWord = searchKeyword == null || searchKeyword.trim().isEmpty()
+                ? "Pride and Prejudice" : searchKeyword.trim();
         LinearLayout root = vertical(activity);
-        root.setPadding(dp(activity, 12), dp(activity, 4), dp(activity, 12), dp(activity, 4));
+        root.setPadding(dp(activity, 12), dp(activity, 5), dp(activity, 12), dp(activity, 5));
+        root.setBackgroundColor(LIGHT);
+
         TextView caption = text(activity,
-                "☑ 勾选的网站才参与搜索；每个站点独立编号。粘贴网址后会自动补全 {keyword}，不确定的参数可手动编辑。",
-                12);
-        caption.setTextColor(Color.rgb(90, 105, 130));
+                "勾选后参与搜索；验证会用书名“" + probeWord
+                        + "”测试搜索接口，不会下载文件。", 12);
+        caption.setTextColor(MUTED);
+        caption.setPadding(dp(activity, 7), dp(activity, 1), dp(activity, 7), dp(activity, 9));
         root.addView(caption);
 
         LinearLayout controls = new LinearLayout(activity);
         controls.setGravity(Gravity.CENTER_VERTICAL);
         root.addView(controls);
-        Button add = button(activity, "＋ 添加网站");
-        Button paste = button(activity, "粘贴并添加");
-        controls.addView(add, new LinearLayout.LayoutParams(0, dp(activity, 49), 1));
-        controls.addView(paste, new LinearLayout.LayoutParams(0, dp(activity, 49), 1));
+        Button add = action(activity, "＋ 新增网站", 0);
+        Button paste = action(activity, "粘贴网址", 1);
+        controls.addView(add, weighted(activity, 1));
+        controls.addView(paste, weighted(activity, 1));
 
-        LinearLayout toggleRow = new LinearLayout(activity);
-        root.addView(toggleRow);
-        Button all = button(activity, "全选");
-        Button none = button(activity, "全不选");
-        toggleRow.addView(all, new LinearLayout.LayoutParams(0, dp(activity, 43), 1));
-        toggleRow.addView(none, new LinearLayout.LayoutParams(0, dp(activity, 43), 1));
+        LinearLayout toggles = new LinearLayout(activity);
+        toggles.setGravity(Gravity.CENTER_VERTICAL);
+        toggles.setPadding(dp(activity, 5), dp(activity, 7), dp(activity, 5), dp(activity, 7));
+        root.addView(toggles);
+        TextView selected = text(activity, "", 12);
+        selected.setTextColor(MUTED);
+        toggles.addView(selected, new LinearLayout.LayoutParams(0, dp(activity, 32), 1));
+        selected.setGravity(Gravity.CENTER_VERTICAL);
+        Button all = action(activity, "全选", 1);
+        Button none = action(activity, "清空选择", 1);
+        all.setTextSize(12);
+        none.setTextSize(12);
+        toggles.addView(all, new LinearLayout.LayoutParams(dp(activity, 65), dp(activity, 34)));
+        LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(dp(activity, 85), dp(activity, 34));
+        np.setMargins(dp(activity, 7), 0, 0, 0);
+        toggles.addView(none, np);
 
         ScrollView scroll = new ScrollView(activity);
+        scroll.setFillViewport(false);
+        scroll.setVerticalScrollBarEnabled(true);
         LinearLayout list = vertical(activity);
         scroll.addView(list);
         root.addView(scroll, new LinearLayout.LayoutParams(
-                -1, (int) (activity.getResources().getDisplayMetrics().heightPixels * .49f)));
+                -1, (int) (activity.getResources().getDisplayMetrics().heightPixels * .53f)));
 
         final Runnable[] refresh = new Runnable[1];
         refresh[0] = () -> {
+            int active = 0;
+            for (Site s : working) if (s.enabled) active++;
+            selected.setText("已勾选 " + active + " / " + working.size());
+
             list.removeAllViews();
             if (working.isEmpty()) {
-                TextView empty = text(activity, "暂无网站。点击上方添加或粘贴网址。", 14);
-                empty.setPadding(dp(activity, 10), dp(activity, 22), dp(activity, 10), dp(activity, 22));
+                TextView empty = text(activity, "还没有网站，点击“新增网站”或“粘贴网址”添加。", 13);
+                empty.setGravity(Gravity.CENTER);
+                empty.setPadding(dp(activity, 10), dp(activity, 28), dp(activity, 10), dp(activity, 28));
                 list.addView(empty);
                 return;
             }
             for (Site site : working) {
                 LinearLayout card = vertical(activity);
-                card.setPadding(dp(activity, 10), dp(activity, 8), dp(activity, 10), dp(activity, 8));
-                GradientDrawable bg = new GradientDrawable();
-                bg.setColor(Color.WHITE);
-                bg.setCornerRadius(dp(activity, 12));
-                bg.setStroke(dp(activity, 1), Color.rgb(217, 226, 240));
-                card.setBackground(bg);
+                card.setPadding(dp(activity, 10), dp(activity, 9),
+                        dp(activity, 10), dp(activity, 10));
+                card.setBackground(background(activity, Color.WHITE, BORDER, 13));
                 LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(-1, -2);
-                cp.setMargins(0, 0, 0, dp(activity, 9));
+                cp.setMargins(dp(activity, 2), 0, dp(activity, 2), dp(activity, 9));
                 list.addView(card, cp);
 
-                CheckBox checked = new CheckBox(activity);
-                checked.setText("#" + number(site.id) + "  " + site.name);
-                checked.setTextSize(15);
-                checked.setTextColor(DARK);
-                checked.setTypeface(Typeface.DEFAULT_BOLD);
-                checked.setChecked(site.enabled);
-                checked.setOnCheckedChangeListener((buttonView, isChecked) -> site.enabled = isChecked);
-                card.addView(checked);
+                CheckBox checkbox = new CheckBox(activity);
+                checkbox.setText("#" + number(site.id) + "   " + site.name);
+                checkbox.setTextSize(14);
+                checkbox.setTextColor(DARK);
+                checkbox.setTypeface(Typeface.DEFAULT_BOLD);
+                checkbox.setButtonTintList(ColorStateList.valueOf(BLUE));
+                checkbox.setPadding(0, 0, 0, dp(activity, 3));
+                checkbox.setChecked(site.enabled);
+                checkbox.setOnCheckedChangeListener((bv, enabled) -> {
+                    site.enabled = enabled;
+                    int count = 0;
+                    for (Site x : working) if (x.enabled) count++;
+                    selected.setText("已勾选 " + count + " / " + working.size());
+                });
+                card.addView(checkbox, new LinearLayout.LayoutParams(-1, -2));
 
-                TextView url = text(activity, site.template, 11);
-                url.setTextColor(Color.rgb(91, 103, 125));
+                TextView url = text(activity, site.template, 12);
+                url.setTextColor(MUTED);
+                url.setPadding(dp(activity, 8), dp(activity, 7), dp(activity, 8), dp(activity, 7));
                 url.setMaxLines(3);
-                url.setPadding(dp(activity, 6), 0, dp(activity, 6), 0);
-                card.addView(url);
+                url.setBackground(background(activity, LIGHT, LIGHT, 8));
+                card.addView(url, new LinearLayout.LayoutParams(-1, -2));
+
                 if (site.guessed) {
-                    TextView hint = text(activity, "⚠ 通用 q= 参数尚未验证，可点编辑调整", 11);
-                    hint.setTextColor(Color.rgb(175, 103, 30));
-                    card.addView(hint);
+                    TextView tip = text(activity, "提示：q= 是通用推测，请验证搜索接口", 11);
+                    tip.setTextColor(AMBER);
+                    tip.setPadding(dp(activity, 6), dp(activity, 5), 0, 0);
+                    card.addView(tip);
                 }
 
+                TextView state = text(activity, "", 12);
+                setStatus(state, site);
+                LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-1, -2);
+                sp.setMargins(0, dp(activity, 8), 0, dp(activity, 8));
+                card.addView(state, sp);
+
                 LinearLayout tools = new LinearLayout(activity);
-                tools.setGravity(Gravity.END);
+                tools.setGravity(Gravity.CENTER_VERTICAL);
                 card.addView(tools);
-                Button modify = button(activity, "编辑");
-                Button delete = button(activity, "删除");
-                tools.addView(modify);
-                tools.addView(delete);
-                modify.setOnClickListener(v -> editSite(activity, site, refresh[0]));
-                delete.setOnClickListener(v -> {
-                    working.remove(site);
+                Button verify = action(activity, site.testing ? "验证中…" : "验证", 0);
+                verify.setEnabled(!site.testing);
+                verify.setAlpha(site.testing ? .6f : 1f);
+                Button modify = action(activity, "编辑", 1);
+                Button delete = action(activity, "删除", 2);
+                tools.addView(verify, weighted(activity, 1.15f));
+                tools.addView(modify, weighted(activity, 1));
+                tools.addView(delete, weighted(activity, 1));
+
+                verify.setOnClickListener(v -> {
+                    if (site.testing) return;
+                    final String snapshot = site.template;
+                    site.testing = true;
                     refresh[0].run();
+                    new Thread(() -> {
+                        SiteVerifier.Result result = SiteVerifier.verify(snapshot, probeWord);
+                        activity.runOnUiThread(() -> {
+                            site.testing = false;
+                            if (!working.contains(site) || !snapshot.equals(site.template)) return;
+                            site.checkLevel = result.level;
+                            site.checkMessage = result.message
+                                    + (result.httpCode > 0 ? " · HTTP " + result.httpCode : "")
+                                    + " · " + result.durationMs + "ms";
+                            site.checkedAt = System.currentTimeMillis();
+                            if (result.level == SiteVerifier.CONFIRMED) site.guessed = false;
+                            refresh[0].run();
+                        });
+                    }, "check-book-site-" + site.id).start();
                 });
+                modify.setOnClickListener(v -> editSite(activity, site, refresh[0]));
+                delete.setOnClickListener(v -> new AlertDialog.Builder(activity)
+                        .setTitle("删除网站 #" + number(site.id))
+                        .setMessage("确定删除“" + site.name + "”？点击管理器的“保存并关闭”后才会永久保存更改。")
+                        .setNegativeButton("取消", null)
+                        .setPositiveButton("删除", (d, which) -> {
+                            working.remove(site);
+                            refresh[0].run();
+                        }).show());
             }
         };
         refresh[0].run();
+
         add.setOnClickListener(v -> showAddDialog(activity, working, refresh[0], "", "", false));
         paste.setOnClickListener(v -> {
             ClipboardManager cm = (ClipboardManager) activity.getSystemService(Context.CLIPBOARD_SERVICE);
             ClipData clip = cm == null ? null : cm.getPrimaryClip();
             if (clip == null || clip.getItemCount() == 0) {
-                Toast.makeText(activity, "剪贴板没有网址", Toast.LENGTH_SHORT).show();
+                Toast.makeText(activity, "剪贴板里没有网址", Toast.LENGTH_SHORT).show();
                 return;
             }
             CharSequence raw = clip.getItemAt(0).coerceToText(activity);
             if (raw == null) return;
-            // Paste now populates the URL field with the inferred keyword suffix.
             String pasted = raw.toString().trim();
             try {
                 SearchTemplate.Conversion c = SearchTemplate.convert(pasted);
@@ -300,15 +457,29 @@ public final class SourceManager {
                 showAddDialog(activity, working, refresh[0], "", pasted, false);
             }
         });
-        all.setOnClickListener(v -> { for (Site s : working) s.enabled = true; refresh[0].run(); });
-        none.setOnClickListener(v -> { for (Site s : working) s.enabled = false; refresh[0].run(); });
+        all.setOnClickListener(v -> {
+            for (Site site : working) site.enabled = true;
+            refresh[0].run();
+        });
+        none.setOnClickListener(v -> {
+            for (Site site : working) site.enabled = false;
+            refresh[0].run();
+        });
 
-        new AlertDialog.Builder(activity)
-                .setTitle("管理搜索网站（可多选）")
+        AlertDialog dialog = new AlertDialog.Builder(activity)
+                .setTitle("管理搜索网站")
                 .setView(root)
-                .setPositiveButton("保存并关闭", (dialog, which) -> onSaved.onSave(working))
+                .setPositiveButton("保存并关闭", (d, which) -> onSaved.onSave(working))
                 .setNegativeButton("取消", null)
-                .show();
+                .create();
+        dialog.setOnShowListener(d -> {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(BLUE);
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(MUTED);
+            if (dialog.getWindow() != null) dialog.getWindow().setLayout(
+                    (int) (activity.getResources().getDisplayMetrics().widthPixels * .94f),
+                    WindowManager.LayoutParams.WRAP_CONTENT);
+        });
+        dialog.show();
     }
 
     private static void showAddDialog(Activity activity, ArrayList<Site> working,
@@ -455,6 +626,10 @@ public final class SourceManager {
                 site.name = name.getText().toString().trim().isEmpty()
                         ? SearchTemplate.defaultName(c.template) : name.getText().toString().trim();
                 site.guessed = c.guessed;
+                site.checkLevel = 0;
+                site.checkMessage = "";
+                site.checkedAt = 0L;
+                site.testing = false;
                 refresh.run();
                 dialog.dismiss();
             } catch (Exception e) {
