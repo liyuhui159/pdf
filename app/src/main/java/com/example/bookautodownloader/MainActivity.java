@@ -121,7 +121,7 @@ public class MainActivity extends Activity {
         LinearLayout sourceCard = card();
         addLabel(sourceCard, "搜索网站（独立编号，可勾选）");
         TextView sourceTip = new TextView(this);
-        sourceTip.setText("每个网站可单独启用/停用。粘贴普通网址时自动补全 {keyword}；不适用的网站可在弹窗中编辑。");
+        sourceTip.setText("点击“管理搜索网站”，可勾选、验证、编辑或添加网站。验证会测试网站及书名搜索，不会自动下载。");
         sourceTip.setTextSize(12);
         sourceTip.setTextColor(Color.parseColor("#697386"));
         sourceTip.setPadding(0, 0, 0, dp(6));
@@ -130,7 +130,7 @@ public class MainActivity extends Activity {
         sourceSummary = new TextView(this);
         sourceSummary.setTextSize(14);
         sourceSummary.setTextColor(Color.parseColor("#263248"));
-        sourceSummary.setPadding(dp(10), dp(14), dp(10), dp(14));
+        sourceSummary.setPadding(dp(12), dp(12), dp(12), dp(12));
         GradientDrawable srcBg = new GradientDrawable();
         srcBg.setColor(Color.parseColor("#F9FBFE"));
         srcBg.setCornerRadius(dp(9));
@@ -142,8 +142,9 @@ public class MainActivity extends Activity {
         row2.setOrientation(LinearLayout.HORIZONTAL);
         row2.setPadding(0, dp(8), 0, 0);
         sourceCard.addView(row2);
-        Button manage = primaryButton("管理网站（勾选/新增）");
-        manage.setOnClickListener(v -> SourceManager.open(this, sites, updated -> {
+        Button manage = primaryButton("管理搜索网站");
+        manage.setOnClickListener(v -> SourceManager.open(this, sites,
+                bookInput.getText().toString().trim(), updated -> {
             sites.clear();
             sites.addAll(updated);
             saveSettings();
@@ -151,7 +152,7 @@ public class MainActivity extends Activity {
             toast("网站列表已保存");
         }));
         row2.addView(manage, weight(1));
-        Button openAll = secondaryButton("打开勾选的网站");
+        Button openAll = secondaryButton("打开已选网站");
         openAll.setOnClickListener(v -> openAllSearchPages());
         row2.addView(openAll, weight(1));
         root.addView(sourceCard);
