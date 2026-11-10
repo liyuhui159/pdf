@@ -28,7 +28,6 @@ import org.json.JSONObject;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Set;
-import java.util.function.Consumer;
 
 /** Modal editor for independently numbered, enabled/disabled ebook search sites. */
 public final class SourceManager {
@@ -38,6 +37,8 @@ public final class SourceManager {
     private static final int DARK = Color.rgb(38, 50, 72);
 
     private SourceManager() {}
+
+    public interface Saved { void onSave(ArrayList<Site> sites); }
 
     public static class Site {
         public int id;
@@ -61,7 +62,7 @@ public final class SourceManager {
                     JSONObject obj = arr.optJSONObject(i);
                     if (obj == null) continue;
                     String template = obj.optString("template", "");
-                    if (!LinkResolver.webUrl(template) || !template.contains("{keyword}")) continue;
+                    if (!LinkResolver.webUrl(template) || !(template.contains("{keyword}") || template.contains("{keyword_raw}"))) continue;
                     list.add(new Site(obj.optInt("id", i + 1),
                             obj.optString("name", SearchTemplate.defaultName(template)),
                             template, obj.optBoolean("enabled", true),
@@ -191,7 +192,7 @@ public final class SourceManager {
     }
 
     public static void open(Activity activity, ArrayList<Site> current,
-                            Consumer<ArrayList<Site>> onSaved) {
+                            Saved onSaved) {
         final ArrayList<Site> working = new ArrayList<>();
         for (Site site : current) working.add(site.copy());
 
@@ -299,7 +300,7 @@ public final class SourceManager {
         new AlertDialog.Builder(activity)
                 .setTitle("管理搜索网站（可多选）")
                 .setView(root)
-                .setPositiveButton("保存并关闭", (dialog, which) -> onSaved.accept(working))
+                .setPositiveButton("保存并关闭", (dialog, which) -> onSaved.onSave(working))
                 .setNegativeButton("取消", null)
                 .show();
     }
