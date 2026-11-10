@@ -53,6 +53,13 @@ public class WebAnalyzeActivity extends Activity {
         super.onCreate(b);
         buildUi();
         setupWebView();
+        String keyword = getIntent().getStringExtra("keyword");
+        if (keyword != null && !keyword.trim().isEmpty()) keywordInput.setText(keyword);
+        String initialUrl = getIntent().getStringExtra("initial_url");
+        if (LinkResolver.webUrl(initialUrl)) {
+            urlInput.setText(initialUrl);
+            webView.loadUrl(initialUrl);
+        }
     }
 
     @Override
@@ -87,7 +94,7 @@ public class WebAnalyzeActivity extends Activity {
         root.addView(keywordInput, new LinearLayout.LayoutParams(-1, -2));
 
         urlInput = input("搜索网址，可含 {keyword}，例如：https://example.com/search?q={keyword}", 2);
-        urlInput.setText("https://example.com/search?q={keyword}");
+        urlInput.setText("https://www.gutenberg.org/ebooks/search/?query={keyword}");
         root.addView(urlInput, new LinearLayout.LayoutParams(-1, -2));
 
         LinearLayout row1 = new LinearLayout(this);
