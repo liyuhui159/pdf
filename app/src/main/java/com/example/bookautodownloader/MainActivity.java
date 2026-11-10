@@ -26,6 +26,7 @@ import android.view.Gravity;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -76,6 +77,12 @@ public class MainActivity extends Activity {
 
         LinearLayout header = card();
         header.setGravity(Gravity.CENTER_HORIZONTAL);
+        ImageView appLogo = new ImageView(this);
+        appLogo.setImageResource(R.drawable.ic_book_search);
+        appLogo.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(dp(70), dp(70));
+        iconParams.setMargins(0, 0, 0, dp(8));
+        header.addView(appLogo, iconParams);
         TextView title = new TextView(this);
         title.setText("书名自动检索下载助手");
         title.setTextSize(23);
@@ -99,6 +106,13 @@ public class MainActivity extends Activity {
             startActivity(intent);
         });
         header.addView(webAnalyzer, new LinearLayout.LayoutParams(-1, -2));
+
+        Button downloadManager = secondaryButton("↓ 下载管理 · 查看进度与已下载文件");
+        downloadManager.setOnClickListener(v ->
+                startActivity(new Intent(this, DownloadManagerActivity.class)));
+        LinearLayout.LayoutParams managerParams = new LinearLayout.LayoutParams(-1, dp(52));
+        managerParams.setMargins(0, dp(8), 0, 0);
+        header.addView(downloadManager, managerParams);
         root.addView(header);
 
         LinearLayout searchCard = card();
