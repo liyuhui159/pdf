@@ -147,7 +147,15 @@ public class WebAnalyzeActivity extends Activity {
         s.setDisplayZoomControls(false);
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
-        webView.setWebViewClient(new WebViewClient());
+        webView.setWebViewClient(new WebViewClient() {
+            @Override public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                // Analyze the rendered DOM (including JavaScript-created anchors).
+                handler.postDelayed(() -> {
+                    if (!isFinishing() && webView != null) analyzePage();
+                }, 700);
+            }
+        });
         webView.setDownloadListener(new DownloadListener() {
             @Override public void onDownloadStart(String url, String userAgent, String contentDisposition, String mimetype, long contentLength) {
                 String name = URLUtil.guessFileName(url, contentDisposition, mimetype);
@@ -258,8 +266,8 @@ public class WebAnalyzeActivity extends Activity {
                 "var sec=m?m[1]:'';" +
                 "var nodes=[].slice.call(document.querySelectorAll('a,button,input[type=button],input[type=submit]'));" +
                 "for(var i=0;i<nodes.length;i++){var e=nodes[i];var t=c(e.innerText||e.textContent||e.value||e.title||e.getAttribute('aria-label')||'');var u=e.href||e.getAttribute('href')||'';var all=(t+' '+u).toLowerCase();" +
-                "if(!visible(e)||e.disabled||e.getAttribute('disabled')!==null)continue;" +
-                "if(all.indexOf('captcha')>=0||all.indexOf('验证码')>=0)continue;" +
+                "if(!visible(e)||e.disabled||e.getAttribute('disabled')!==null||e.getAttribute('aria-disabled')==='true'||(e.className&&String(e.className).indexOf('disabled')>=0))continue;" +
+                "if(all.indexOf('captcha')>=0||all.indexOf('验证码')>=0||(+sec>0))continue;" +
                 "if(all.indexOf('download')>=0||all.indexOf('下载')>=0||all.indexOf('slow')>=0||all.indexOf('free')>=0||all.indexOf('.pdf')>=0||all.indexOf('.epub')>=0){e.click();return JSON.stringify({clicked:true,text:t,url:u,sec:sec});}" +
                 "}" +
                 "return JSON.stringify({clicked:false,sec:sec});" +
@@ -287,11 +295,11 @@ public class WebAnalyzeActivity extends Activity {
     }
 
     private String unwrapJsonString(String value) {
-        String json = value == null ? "" : value;
-        if (json.length() >= 2 && json.startsWith("\"") && json.endsWith("\"")) {
-            json = json.substring(1, json.length() - 1).replace("\\\"", "\"").replace("\\\\", "\\");
-        }
-        return json;
+        if (value == null || "null".equals(value)) return "";
+        try {
+            if (value.startsWith("\"")) return new JSONArray("[" + value + "]").getString(0);
+        } catch (Exception ignored) {}
+        return value;
     }
 
     private void analyzePage() {
@@ -308,8 +316,8 @@ public class WebAnalyzeActivity extends Activity {
                 "n=a; var best=''; for(var j=0;n&&j<5;j++,n=n.parentElement){var tx=goodText(n.innerText||n.textContent); if(tx.length>best.length)best=tx;}" +
                 "return best;" +
                 "}" +
-                "var arr=[].slice.call(document.querySelectorAll('a'));" +
-                "return JSON.stringify(arr.map(function(a){return {t:titleOf(a),lt:clean(a.innerText||a.textContent||a.title||''),u:a.href||'',cls:a.className||''};}).filter(function(x){return x.u;}));" +
+                "var arr=[].slice.call(document.querySelectorAll('a[href],[data-href],[data-url],iframe[src],embed[src]'));" +
+                "return JSON.stringify(arr.map(function(a){var raw=a.href||a.getAttribute('data-href')||a.getAttribute('data-url')||a.src||'';var u='';try{u=new URL(raw,document.baseURI).href;}catch(e){}return {t:titleOf(a),lt:clean(a.innerText||a.textContent||a.title||''),u:u,cls:String(a.className||'')};}).filter(function(x){return /^https?:\\/\\//.test(x.u);}));" +
                 "})()";
         webView.evaluateJavascript(js, new ValueCallback<String>() {
             @Override public void onReceiveValue(String value) { parseJsResult(value); }
@@ -328,7 +336,7 @@ public class WebAnalyzeActivity extends Activity {
                 String title = o.optString("t", "");
                 String linkText = o.optString("lt", "");
                 String url = o.optString("u", "");
-                if (url.length() == 0 || seen.contains(url)) continue;
+                if (!LinkResolver.webUrl(url) || seen.contains(url)) continue;
                 if (!isCandidate(title, linkText, url)) continue;
                 seen.add(url);
                 String displayTitle = pickTitle(title, linkText, url);
@@ -397,7 +405,7 @@ public class WebAnalyzeActivity extends Activity {
             LinearLayout row1 = new LinearLayout(this);
             row1.setOrientation(LinearLayout.HORIZONTAL);
             row1.setPadding(0, dp(6), 0, 0);
-            Button down = button(isDirectFile(it.url) ? "直接下载" : "尝试下载", true);
+            Button down = button("解析并下载", true);
             down.setOnClickListener(v -> downloadWithCookies(it.url, safeName(it.title), null, webView.getSettings().getUserAgentString()));
             row1.addView(down, weight());
             Button openIn = button("网页打开", false);
@@ -429,26 +437,36 @@ public class WebAnalyzeActivity extends Activity {
     }
 
     private void downloadWithCookies(String url, String fileName, String mimetype, String userAgent) {
-        try {
-            DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
-            DownloadManager.Request req = new DownloadManager.Request(Uri.parse(url));
-            req.setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI | DownloadManager.Request.NETWORK_MOBILE);
-            req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-            String cookies = CookieManager.getInstance().getCookie(url);
-            if (cookies != null) req.addRequestHeader("Cookie", cookies);
-            if (userAgent != null) req.addRequestHeader("User-Agent", userAgent);
-            String safe = safeName(fileName);
-            req.setTitle(safe);
-            req.setDescription("书名自动检索下载助手");
-            if (mimetype != null) req.setMimeType(mimetype);
-            req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, safe);
-            dm.enqueue(req);
-            toast("已交给系统下载器；若无进度，请用“网页打开/浏览器打开”");
-            log("下载尝试：" + url);
-        } catch (Exception e) {
-            toast("下载失败：" + e.getMessage());
-            log("下载失败：" + e.getMessage());
+        if (!LinkResolver.webUrl(url)) {
+            log("无法由系统下载器处理该地址：" + url
+                    + "。blob:/data: 等临时链接需要网站自身的下载按钮处理");
+            toast("该链接不是普通 HTTP 文件地址");
+            return;
         }
+        String referer = webView.getUrl();
+        String keyword = keywordInput.getText().toString().trim();
+        log("开始解析真实文件链接：" + url);
+        new Thread(() -> {
+            LinkResolver.FileLink file = LinkResolver.resolve(url, referer, keyword, userAgent,
+                    target -> CookieManager.getInstance().getCookie(target),
+                    msg -> runOnUiThread(() -> log(msg)));
+            runOnUiThread(() -> {
+                if (file == null) {
+                    log("未发现文件直链。请在网页内手动进入详情页或点击已解锁的下载按钮，再次分析");
+                    toast("未获得真实下载地址");
+                    return;
+                }
+                try {
+                    long id = DownloadJobs.enqueue(this, file, userAgent);
+                    log("已确认文件：" + file.name + "，下载任务：" + id);
+                    toast("已提交系统下载器，正在监测");
+                    DownloadJobs.watch(this, id, this::log);
+                } catch (Exception e) {
+                    log("下载提交失败：" + e.getMessage());
+                    toast("下载提交失败：" + e.getMessage());
+                }
+            });
+        }).start();
     }
 
     private String guessName(String url) {
