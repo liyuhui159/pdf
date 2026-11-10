@@ -63,7 +63,7 @@ public final class LinkResolver {
     }
 
     private static final String EXT = "(?:pdf|epub|mobi|azw3|txt|doc|docx|zip|rar|7z)";
-    private static final Pattern FILE_PATH = Pattern.compile("(?i)\\." + EXT + "(?:$|[?#&])");
+    private static final Pattern FILE_PATH = Pattern.compile("(?i)\\." + EXT + "(?:$|[?#&.]|(?=\\d))");
     private static final Pattern FILE_NAME = Pattern.compile("(?i)filename\\*?\\s*=\\s*(?:UTF-8''|\"?)([^\";]+)");
     private static final Pattern META_REFRESH = Pattern.compile("(?i)url\\s*=\\s*['\"]?([^'\";]+)");
     private static final int MAX_PAGES = 12;
@@ -197,6 +197,7 @@ public final class LinkResolver {
         if (m.contains("application/x-rar")) return ".rar";
         if (m.contains("application/x-7z")) return ".7z";
         if (m.contains("application/msword")) return ".doc";
+        if (m.contains("text/plain")) return ".txt";
         if (m.contains("wordprocessingml")) return ".docx";
         return "";
     }
@@ -218,7 +219,7 @@ public final class LinkResolver {
             } catch (Exception ignored) {}
         }
         name = name.replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]", "_").trim();
-        if (name.length() < 2 || !name.contains(".")) {
+        if (name.length() < 2 || !fileHint(name)) {
             if (name.length() < 2) name = "ebook";
             name += inferExtension(mime);
         }
