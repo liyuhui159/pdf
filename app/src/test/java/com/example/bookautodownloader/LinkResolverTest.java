@@ -1,6 +1,10 @@
 package com.example.bookautodownloader;
 
 import org.junit.Test;
+import com.sun.net.httpserver.HttpServer;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.io.OutputStream;
 import java.util.List;
 import static org.junit.Assert.*;
 
@@ -36,5 +40,42 @@ public class LinkResolverTest {
         assertTrue(LinkResolver.webUrl("https://example.org/book"));
         assertFalse(LinkResolver.webUrl("javascript:alert(1)"));
         assertFalse(LinkResolver.webUrl("content://downloads/12"));
+    }
+
+    private static void send(com.sun.net.httpserver.HttpExchange x, String mime, String data)
+            throws java.io.IOException {
+        byte[] bytes = data.getBytes(StandardCharsets.UTF_8);
+        x.getResponseHeaders().set("Content-Type", mime);
+        x.sendResponseHeaders(200, bytes.length);
+        try (OutputStream stream = x.getResponseBody()) {
+            stream.write(bytes);
+        }
+    }
+
+    @Test public void followsDetailsAndValidatesActualFile() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/book", x ->
+                send(x, "text/html; charset=utf-8",
+                        "<html><a href='/download'>下载 PDF</a></html>"));
+        server.createContext("/download", x ->
+                send(x, "text/html; charset=utf-8",
+                        "<html><a href='/files/real.pdf'>Download PDF</a></html>"));
+        server.createContext("/files/real.pdf", x ->
+                send(x, "application/pdf", "%PDF-1.7\nTest content"));
+        server.createContext("/fake.pdf", x ->
+                send(x, "text/html", "<html>请先登录，无法直接下载</html>"));
+        server.start();
+        String base = "http://127.0.0.1:" + server.getAddress().getPort();
+        try {
+            LinkResolver.FileLink file = LinkResolver.resolve(base + "/book", null, "测试书籍",
+                    "JUnit", url -> null, message -> {});
+            assertNotNull("Must follow HTML pages to real file", file);
+            assertEquals(base + "/files/real.pdf", file.url);
+            assertEquals("real.pdf", file.name);
+
+            assertNull("HTML disguised as a .pdf must not be enqueued",
+                    LinkResolver.resolve(base + "/fake.pdf", null, "测试书籍",
+                            "JUnit", url -> null, message -> {}));
+        } finally { server.stop(0); }
     }
 }
