@@ -148,7 +148,7 @@ public class MainActivity extends Activity {
         extTip.setTextSize(12);
         extTip.setTextColor(Color.parseColor("#697386"));
         optionCard.addView(extTip);
-        extInput = input("pdf,zip,rar,7z", 1);
+        extInput = input("pdf,epub,mobi,txt,zip,rar,7z", 1);
         optionCard.addView(extInput, new LinearLayout.LayoutParams(-1, -2));
         autoDownloadCheck = new CheckBox(this);
         autoDownloadCheck.setText("搜索后自动下载最高匹配结果（建议测试稳定后再开启）");
@@ -270,7 +270,9 @@ public class MainActivity extends Activity {
         String saved = sp.getString("templates", DEFAULT_TEMPLATES);
         if ("https://example.com/search?q={keyword}".equals(saved.trim())) saved = DEFAULT_TEMPLATES;
         templatesInput.setText(saved);
-        extInput.setText(sp.getString("ext", "pdf,zip,rar,7z"));
+        String extSaved = sp.getString("ext", "pdf,epub,mobi,txt,zip,rar,7z");
+        if ("pdf,zip,rar,7z".equals(extSaved.trim())) extSaved = "pdf,epub,mobi,txt,zip,rar,7z";
+        extInput.setText(extSaved);
         autoDownloadCheck.setChecked(sp.getBoolean("auto", false));
     }
 
@@ -446,7 +448,7 @@ public class MainActivity extends Activity {
         String response = httpGet(url);
         ArrayList<Result> results;
         if (url.startsWith("https://gutendex.com/books") || url.startsWith("http://gutendex.com/books")) {
-            results = parseGutendex(response, source.name, keyword);
+            results = parseGutendex(response, source.name, keyword, exts);
         } else {
             results = parseLinks(response, url, keyword, exts, source.name);
         }
@@ -455,7 +457,7 @@ public class MainActivity extends Activity {
     }
 
     /** Gutendex gives actual public-domain file URLs instead of HTML search cards. */
-    private ArrayList<Result> parseGutendex(String json, String source, String keyword) throws Exception {
+    private ArrayList<Result> parseGutendex(String json, String source, String keyword, String exts) throws Exception {
         ArrayList<Result> out = new ArrayList<>();
         JSONArray books = new JSONObject(json).optJSONArray("results");
         if (books == null) throw new Exception("资源站没有返回有效的书籍列表");
@@ -472,8 +474,12 @@ public class MainActivity extends Activity {
                 String mime = formatKey.toLowerCase(Locale.ROOT);
                 String file = formats.optString(formatKey, "");
                 if (!LinkResolver.webUrl(file)) continue;
-                if (mime.contains("application/epub") || mime.contains("application/pdf")
-                        || mime.startsWith("text/plain") || mime.contains("application/zip")) {
+                String ext = mime.contains("application/epub") ? "epub"
+                        : mime.contains("application/pdf") ? "pdf"
+                        : mime.startsWith("text/plain") ? "txt"
+                        : mime.contains("application/zip") ? "zip" : "";
+                if (!ext.isEmpty() && (exts.trim().isEmpty()
+                        || ("," + exts.toLowerCase(Locale.ROOT).replace(" ", "") + ",").contains("," + ext + ","))) {
                     urls.add(file);
                 }
             }
@@ -632,7 +638,7 @@ public class MainActivity extends Activity {
             open.setOnClickListener(v -> {
                 Intent intent = new Intent(this, WebAnalyzeActivity.class);
                 intent.putExtra("initial_url", r.url);
-                intent.putExtra("keyword", r.title);
+                intent.putExtra("keyword", bookInput.getText().toString().trim());
                 startActivity(intent);
             });
             row.addView(open, weight(1));
