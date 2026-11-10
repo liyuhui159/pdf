@@ -92,7 +92,11 @@ public class MainActivity extends Activity {
         header.addView(tip, new LinearLayout.LayoutParams(-1, -2));
 
         Button webAnalyzer = primaryButton("进入网页登录分析器（适合需要登录的网站）");
-        webAnalyzer.setOnClickListener(v -> startActivity(new Intent(this, WebAnalyzeActivity.class)));
+        webAnalyzer.setOnClickListener(v -> {
+            Intent intent = new Intent(this, WebAnalyzeActivity.class);
+            intent.putExtra("keyword", bookInput == null ? "" : bookInput.getText().toString().trim());
+            startActivity(intent);
+        });
         header.addView(webAnalyzer, new LinearLayout.LayoutParams(-1, -2));
         root.addView(header);
 
@@ -624,8 +628,13 @@ public class MainActivity extends Activity {
             Button down = primaryButton("解析并下载");
             down.setOnClickListener(v -> download(r));
             row.addView(down, weight(1));
-            Button open = secondaryButton("打开网页");
-            open.setOnClickListener(v -> startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(r.url))));
+            Button open = secondaryButton("网页分析");
+            open.setOnClickListener(v -> {
+                Intent intent = new Intent(this, WebAnalyzeActivity.class);
+                intent.putExtra("initial_url", r.url);
+                intent.putExtra("keyword", r.title);
+                startActivity(intent);
+            });
             row.addView(open, weight(1));
             card.addView(row);
             resultBox.addView(card);
@@ -644,7 +653,7 @@ public class MainActivity extends Activity {
                     this::logSafe);
             ui.post(() -> {
                 if (file == null) {
-                    toast("未取得真实文件地址，请点击“打开网页”手动登录或操作");
+                    toast("未取得真实文件地址，请点击“网页分析”登录或操作");
                     log("未下载：目标仍是网页，或需要网页内 JavaScript 生成下载链接");
                     return;
                 }
