@@ -464,8 +464,9 @@ public class MainActivity extends Activity {
             Iterator<String> keys = formats.keys();
             ArrayList<String> urls = new ArrayList<>();
             while (keys.hasNext()) {
-                String mime = keys.next().toLowerCase(Locale.ROOT);
-                String file = formats.optString(mime, "");
+                String formatKey = keys.next();
+                String mime = formatKey.toLowerCase(Locale.ROOT);
+                String file = formats.optString(formatKey, "");
                 if (!LinkResolver.webUrl(file)) continue;
                 if (mime.contains("application/epub") || mime.contains("application/pdf")
                         || mime.startsWith("text/plain") || mime.contains("application/zip")) {
@@ -629,7 +630,9 @@ public class MainActivity extends Activity {
             card.addView(row);
             resultBox.addView(card);
         }
-        if (autoDownloadCheck.isChecked() && !unique.isEmpty() && unique.get(0).score >= 55) download(unique.get(0));
+        if (autoDownloadCheck.isChecked() && !unique.isEmpty()
+                && LinkResolver.matchScore(bookInput.getText().toString(), unique.get(0).title) >= 70)
+            download(unique.get(0));
     }
 
     /** The old version queued an HTML detail page as a .pdf. Never do that. */
