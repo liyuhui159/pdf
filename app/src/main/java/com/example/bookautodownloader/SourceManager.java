@@ -281,7 +281,7 @@ public final class SourceManager {
             }
         };
         refresh[0].run();
-        add.setOnClickListener(v -> showAddDialog(activity, working, refresh[0], "", ""));
+        add.setOnClickListener(v -> showAddDialog(activity, working, refresh[0], "", "", false));
         paste.setOnClickListener(v -> {
             ClipboardManager cm = (ClipboardManager) activity.getSystemService(Context.CLIPBOARD_SERVICE);
             ClipData clip = cm == null ? null : cm.getPrimaryClip();
@@ -291,8 +291,14 @@ public final class SourceManager {
             }
             CharSequence raw = clip.getItemAt(0).coerceToText(activity);
             if (raw == null) return;
-            // Pasted URL(s) can be reviewed before they are added.
-            showAddDialog(activity, working, refresh[0], "", raw.toString().trim());
+            // Paste now populates the URL field with the inferred keyword suffix.
+            String pasted = raw.toString().trim();
+            try {
+                SearchTemplate.Conversion c = SearchTemplate.convert(pasted);
+                showAddDialog(activity, working, refresh[0], "", c.template, c.guessed);
+            } catch (Exception ex) {
+                showAddDialog(activity, working, refresh[0], "", pasted, false);
+            }
         });
         all.setOnClickListener(v -> { for (Site s : working) s.enabled = true; refresh[0].run(); });
         none.setOnClickListener(v -> { for (Site s : working) s.enabled = false; refresh[0].run(); });
@@ -306,7 +312,7 @@ public final class SourceManager {
     }
 
     private static void showAddDialog(Activity activity, ArrayList<Site> working,
-                                      Runnable refresh, String oldName, String initialUrl) {
+                                      Runnable refresh, String oldName, String initialUrl, boolean initialGuessed) {
         LinearLayout layout = vertical(activity);
         layout.setPadding(dp(activity, 22), dp(activity, 12), dp(activity, 22), 0);
         layout.addView(text(activity, "网站名称（可不填，自动采用域名）", 12));
@@ -321,12 +327,16 @@ public final class SourceManager {
         preview.setTextColor(Color.rgb(95, 106, 122));
         layout.addView(preview);
 
-        final boolean[] manualChanged = { false };
+        final boolean[] injecting = { false };
+        final String[] generated = { initialUrl };
+        final boolean[] guessedGenerated = { initialGuessed };
         final Runnable updatePreview = () -> {
             try {
                 SearchTemplate.Conversion c = SearchTemplate.convert(url.getText().toString());
-                preview.setText("预览：" + c.template + "\n" + c.note);
-                preview.setTextColor(c.guessed ? Color.rgb(175, 103, 30) : BLUE);
+                boolean guessed = c.guessed || (guessedGenerated[0] && c.template.equals(generated[0]));
+                preview.setText("预览：" + c.template + "\n"
+                        + (guessed ? "通用 q= 参数仅供尝试，请确认网站实际搜索地址" : c.note));
+                preview.setTextColor(guessed ? Color.rgb(175, 103, 30) : BLUE);
             } catch (Exception ex) {
                 preview.setText("输入有效网址后将自动补全关键词");
             }
@@ -334,17 +344,39 @@ public final class SourceManager {
         url.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int st, int cnt, int after) {}
             @Override public void onTextChanged(CharSequence s, int st, int before, int count) {
-                manualChanged[0] = true;
                 updatePreview.run();
+                // A large single insertion is usually a clipboard paste.
+                // Avoid changing URLs while the user types one character at a time.
+                if (injecting[0] || count < 8) return;
+                String pasted = s.toString();
+                if (pasted.contains("{keyword}") || pasted.contains("{keyword_raw}")) return;
+                try {
+                    SearchTemplate.Conversion c = SearchTemplate.convert(pasted);
+                    if (c.template.equals(pasted)) return;
+                    url.post(() -> {
+                        if (!url.getText().toString().equals(pasted)) return;
+                        injecting[0] = true;
+                        generated[0] = c.template;
+                        guessedGenerated[0] = c.guessed;
+                        url.setText(c.template);
+                        url.setSelection(url.length());
+                        injecting[0] = false;
+                        updatePreview.run();
+                    });
+                } catch (Exception ignored) {}
             }
             @Override public void afterTextChanged(Editable e) {}
         });
         auto.setOnClickListener(v -> {
             try {
                 SearchTemplate.Conversion c = SearchTemplate.convert(url.getText().toString());
+                generated[0] = c.template;
+                guessedGenerated[0] = c.guessed || guessedGenerated[0] && generated[0].equals(c.template);
+                injecting[0] = true;
                 url.setText(c.template);
                 url.setSelection(url.length());
-                preview.setText(c.note);
+                injecting[0] = false;
+                updatePreview.run();
             } catch (Exception e) {
                 Toast.makeText(activity, e.getMessage(), Toast.LENGTH_SHORT).show();
             }
@@ -373,10 +405,11 @@ public final class SourceManager {
                 }
                 String label = name.getText().toString().trim();
                 if (label.isEmpty()) label = SearchTemplate.defaultName(c.template);
-                working.add(new Site(nextId(working), label, c.template, true, c.guessed));
+                boolean guessed = c.guessed || (guessedGenerated[0] && c.template.equals(generated[0]));
+                working.add(new Site(nextId(working), label, c.template, true, guessed));
                 refresh.run();
                 dialog.dismiss();
-                if (c.guessed) Toast.makeText(activity, "已添加，通用 q= 搜索参数建议打开网页验证", Toast.LENGTH_LONG).show();
+                if (guessed) Toast.makeText(activity, "已添加，通用 q= 搜索参数建议打开网页验证", Toast.LENGTH_LONG).show();
             } catch (Exception e) {
                 Toast.makeText(activity, e.getMessage(), Toast.LENGTH_LONG).show();
             }
