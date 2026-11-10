@@ -50,7 +50,9 @@ public final class DownloadJobs {
         // Cookies are scoped to the actual file host; never copy other-site cookies.
         String cookie = CookieManager.getInstance().getCookie(file.url);
         if (cookie != null && !cookie.isEmpty()) request.addRequestHeader("Cookie", cookie);
-        return manager.enqueue(request);
+        long id = manager.enqueue(request);
+        DownloadHistory.record(context, id, name, file.url, file.mime, file.referer, userAgent);
+        return id;
     }
 
     public static void watch(Activity activity, long id, Messages messages) {
