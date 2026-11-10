@@ -11,6 +11,12 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
+import android.webkit.CookieManager;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.util.Iterator;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
@@ -50,7 +56,7 @@ public class MainActivity extends Activity {
     private TextView logView;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private static final String PREF = "book_downloader_pref_v4";
-    private static final String DEFAULT_TEMPLATES = "https://example.com/search?q={keyword}";
+    private static final String DEFAULT_TEMPLATES = "https://gutendex.com/books?search={keyword}\nhttps://www.gutenberg.org/ebooks/search/?query={keyword}";
 
     @Override
     protected void onCreate(Bundle b) {
@@ -110,7 +116,7 @@ public class MainActivity extends Activity {
         LinearLayout sourceCard = card();
         addLabel(sourceCard, "资源站搜索网址模板，可添加多个");
         TextView sourceTip = new TextView(this);
-        sourceTip.setText("每行一个模板，必须包含 {keyword}。保存后下次自动保留。\n例如：https://example.com/search?q={keyword}");
+        sourceTip.setText("每行一个模板，必须包含 {keyword}。内置公版书源 Gutendex / Gutenberg，可自行添加允许下载的站点。");
         sourceTip.setTextSize(12);
         sourceTip.setTextColor(Color.parseColor("#697386"));
         sourceTip.setPadding(0, 0, 0, dp(6));
@@ -257,7 +263,9 @@ public class MainActivity extends Activity {
 
     private void loadSettings() {
         SharedPreferences sp = getSharedPreferences(PREF, MODE_PRIVATE);
-        templatesInput.setText(sp.getString("templates", DEFAULT_TEMPLATES));
+        String saved = sp.getString("templates", DEFAULT_TEMPLATES);
+        if ("https://example.com/search?q={keyword}".equals(saved.trim())) saved = DEFAULT_TEMPLATES;
+        templatesInput.setText(saved);
         extInput.setText(sp.getString("ext", "pdf,zip,rar,7z"));
         autoDownloadCheck.setChecked(sp.getBoolean("auto", false));
     }
@@ -337,11 +345,15 @@ public class MainActivity extends Activity {
     }
 
     private String makeSearchUrl(String template) throws Exception {
-        String keyword = bookInput.getText().toString().trim();
+        return makeSearchUrl(template, bookInput.getText().toString().trim());
+    }
+
+    private String makeSearchUrl(String template, String keyword) throws Exception {
         if (keyword.length() == 0) throw new Exception("请先输入或读取书名");
-        if (!template.contains("{keyword}") && !template.contains("{keyword_raw}")) throw new Exception("网址模板必须包含 {keyword}");
-        String enc = URLEncoder.encode(keyword, "UTF-8");
-        return template.replace("{keyword_raw}", keyword).replace("{keyword}", enc);
+        if (!template.contains("{keyword}") && !template.contains("{keyword_raw}"))
+            throw new Exception("网址模板必须包含 {keyword}");
+        return template.replace("{keyword_raw}", keyword)
+                .replace("{keyword}", URLEncoder.encode(keyword, "UTF-8"));
     }
 
     private void openAllSearchPages() {
@@ -425,12 +437,54 @@ public class MainActivity extends Activity {
     }
 
     private ArrayList<Result> searchOne(Source source, String keyword, String exts) throws Exception {
-        String url = makeSearchUrl(source.template);
+        String url = makeSearchUrl(source.template, keyword);
         logSafe(source.name + " 搜索：" + url);
-        String html = httpGet(url);
-        ArrayList<Result> results = parseLinks(html, url, keyword, exts, source.name);
+        String response = httpGet(url);
+        ArrayList<Result> results;
+        if (url.startsWith("https://gutendex.com/books") || url.startsWith("http://gutendex.com/books")) {
+            results = parseGutendex(response, source.name, keyword);
+        } else {
+            results = parseLinks(response, url, keyword, exts, source.name);
+        }
         logSafe(source.name + " 候选链接：" + results.size() + " 个");
         return results;
+    }
+
+    /** Gutendex gives actual public-domain file URLs instead of HTML search cards. */
+    private ArrayList<Result> parseGutendex(String json, String source, String keyword) throws Exception {
+        ArrayList<Result> out = new ArrayList<>();
+        JSONArray books = new JSONObject(json).optJSONArray("results");
+        if (books == null) throw new Exception("资源站没有返回有效的书籍列表");
+        for (int i = 0; i < books.length() && i < 30; i++) {
+            JSONObject book = books.optJSONObject(i);
+            if (book == null) continue;
+            String title = book.optString("title", "");
+            JSONObject formats = book.optJSONObject("formats");
+            if (formats == null) continue;
+            Iterator<String> keys = formats.keys();
+            ArrayList<String> urls = new ArrayList<>();
+            while (keys.hasNext()) {
+                String mime = keys.next().toLowerCase(Locale.ROOT);
+                String file = formats.optString(mime, "");
+                if (!LinkResolver.webUrl(file)) continue;
+                if (mime.contains("application/epub") || mime.contains("application/pdf")
+                        || mime.startsWith("text/plain") || mime.contains("application/zip")) {
+                    urls.add(file);
+                }
+            }
+            Collections.sort(urls, (a, b) -> Integer.compare(formatPreference(b), formatPreference(a)));
+            for (String file : urls) {
+                out.add(new Result(source, title, file, Math.max(55, LinkResolver.matchScore(keyword, title))));
+            }
+        }
+        return out;
+    }
+
+    private int formatPreference(String url) {
+        String s = url.toLowerCase(Locale.ROOT);
+        if (s.contains("epub")) return 3;
+        if (s.contains("pdf")) return 2;
+        return 1;
     }
 
     private String httpGet(String urlText) throws Exception {
@@ -456,27 +510,21 @@ public class MainActivity extends Activity {
     }
 
     private ArrayList<Result> parseLinks(String html, String baseUrl, String keyword, String extText, String sourceName) {
-        ArrayList<Result> list = new ArrayList<>();
-        Set<String> seen = new HashSet<>();
-        Pattern p = Pattern.compile("<a[^>]+href=[\\\"']([^\\\"']+)[\\\"'][^>]*>(.*?)</a>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
-        Matcher m = p.matcher(html);
-        while (m.find()) {
-            try {
-                String href = m.group(1).trim();
-                String title = strip(m.group(2));
-                String abs = new URL(new URL(baseUrl), href).toString();
-                if (seen.contains(abs)) continue;
-                if (!isCandidate(abs, title, extText)) continue;
-                int score = score(keyword, title + " " + abs);
-                if (score < 15 && !looksFile(abs, extText)) continue;
-                if (title.length() == 0) title = guessName(abs);
-                list.add(new Result(sourceName, title, abs, score));
-                seen.add(abs);
-            } catch (Exception ignored) {}
+        ArrayList<Result> results = new ArrayList<>();
+        for (LinkResolver.Candidate item : LinkResolver.searchLinks(html, baseUrl, keyword)) {
+            if (LinkResolver.fileHint(item.url) && !allowedFormat(item.url, extText)) continue;
+            results.add(new Result(sourceName, item.title, item.url, Math.min(100, item.score)));
         }
-        Collections.sort(list, (a, b) -> b.score - a.score);
-        if (list.size() > 20) return new ArrayList<>(list.subList(0, 20));
-        return list;
+        return results;
+    }
+
+    private boolean allowedFormat(String url, String exts) {
+        if (exts == null || exts.trim().isEmpty()) return true;
+        String text = url.toLowerCase(Locale.ROOT);
+        for (String e : exts.toLowerCase(Locale.ROOT).split("[,， ]+")) {
+            if (!e.trim().isEmpty() && text.contains("." + e.trim())) return true;
+        }
+        return false;
     }
 
     private boolean isCandidate(String url, String title, String extText) {
@@ -572,10 +620,10 @@ public class MainActivity extends Activity {
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setPadding(0, dp(8), 0, 0);
-            Button down = primaryButton("下载");
+            Button down = primaryButton("解析并下载");
             down.setOnClickListener(v -> download(r));
             row.addView(down, weight(1));
-            Button open = secondaryButton("打开");
+            Button open = secondaryButton("打开网页");
             open.setOnClickListener(v -> startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(r.url))));
             row.addView(open, weight(1));
             card.addView(row);
@@ -584,22 +632,30 @@ public class MainActivity extends Activity {
         if (autoDownloadCheck.isChecked() && !unique.isEmpty() && unique.get(0).score >= 55) download(unique.get(0));
     }
 
+    /** The old version queued an HTML detail page as a .pdf. Never do that. */
     private void download(Result r) {
-        try {
-            DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
-            DownloadManager.Request req = new DownloadManager.Request(Uri.parse(r.url));
-            req.setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI | DownloadManager.Request.NETWORK_MOBILE);
-            req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-            String fileName = safeName(guessName(r.url));
-            req.setTitle(fileName);
-            req.setDescription("书名自动检索下载助手");
-            req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName);
-            dm.enqueue(req);
-            toast("已开始下载到 Download 文件夹");
-            log("下载：" + r.url);
-        } catch (Exception e) {
-            toast("下载失败：" + e.getMessage());
-        }
+        log("正在逐层解析：" + r.title);
+        new Thread(() -> {
+            LinkResolver.FileLink file = LinkResolver.resolve(r.url, null, r.title,
+                    null, url -> CookieManager.getInstance().getCookie(url),
+                    this::logSafe);
+            ui.post(() -> {
+                if (file == null) {
+                    toast("未取得真实文件地址，请点击“打开网页”手动登录或操作");
+                    log("未下载：目标仍是网页，或需要网页内 JavaScript 生成下载链接");
+                    return;
+                }
+                try {
+                    long id = DownloadJobs.enqueue(this, file, null);
+                    toast("已提交下载，正在监测状态");
+                    log("已识别文件：" + file.name + "；任务 ID：" + id);
+                    DownloadJobs.watch(this, id, this::log);
+                } catch (Exception e) {
+                    toast("提交下载失败：" + e.getMessage());
+                    log("提交下载失败：" + e.getMessage());
+                }
+            });
+        }).start();
     }
 
     private String guessName(String url) {
