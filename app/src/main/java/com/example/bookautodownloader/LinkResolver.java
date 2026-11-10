@@ -321,7 +321,8 @@ public final class LinkResolver {
                 for (Candidate link : candidates) {
                     if (visited.contains(link.url)) continue;
                     // Allow external file hosts, but do not spider unrelated sites.
-                    if (!sameHost(link.url, page.url) && !fileHint(link.url)) continue;
+                    if (!sameHost(link.url, page.url) && !fileHint(link.url)
+                            && !downloadHint(link.title + " " + link.url)) continue;
                     queue.addLast(new Step(link.url, page.url, step.depth + 1));
                     if (++added == 10) break;
                 }
