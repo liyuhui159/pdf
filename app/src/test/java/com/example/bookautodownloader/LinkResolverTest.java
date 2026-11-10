@@ -1,10 +1,13 @@
 package com.example.bookautodownloader;
 
 import org.junit.Test;
-import com.sun.net.httpserver.HttpServer;
-import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.io.OutputStream;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.IOException;
 import java.util.List;
 import static org.junit.Assert.*;
 
@@ -42,40 +45,64 @@ public class LinkResolverTest {
         assertFalse(LinkResolver.webUrl("content://downloads/12"));
     }
 
-    private static void send(com.sun.net.httpserver.HttpExchange x, String mime, String data)
-            throws java.io.IOException {
-        byte[] bytes = data.getBytes(StandardCharsets.UTF_8);
-        x.getResponseHeaders().set("Content-Type", mime);
-        x.sendResponseHeaders(200, bytes.length);
-        try (OutputStream stream = x.getResponseBody()) {
-            stream.write(bytes);
-        }
+    private static void respond(Socket client, String mime, String content) throws IOException {
+        byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
+        String headers = "HTTP/1.1 200 OK\r\nContent-Type: " + mime
+                + "\r\nContent-Length: " + bytes.length
+                + "\r\nConnection: close\r\n\r\n";
+        OutputStream out = client.getOutputStream();
+        out.write(headers.getBytes(StandardCharsets.US_ASCII));
+        out.write(bytes);
+        out.flush();
     }
 
     @Test public void followsDetailsAndValidatesActualFile() throws Exception {
-        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/book", x ->
-                send(x, "text/html; charset=utf-8",
-                        "<html><a href='/download'>下载 PDF</a></html>"));
-        server.createContext("/download", x ->
-                send(x, "text/html; charset=utf-8",
-                        "<html><a href='/files/real.pdf'>Download PDF</a></html>"));
-        server.createContext("/files/real.pdf", x ->
-                send(x, "application/pdf", "%PDF-1.7\nTest content"));
-        server.createContext("/fake.pdf", x ->
-                send(x, "text/html", "<html>请先登录，无法直接下载</html>"));
-        server.start();
-        String base = "http://127.0.0.1:" + server.getAddress().getPort();
+        ServerSocket server = new ServerSocket(0);
+        Thread worker = new Thread(() -> {
+            while (!server.isClosed()) {
+                try (Socket client = server.accept()) {
+                    client.setSoTimeout(8000);
+                    BufferedReader in = new BufferedReader(
+                            new InputStreamReader(client.getInputStream(), StandardCharsets.US_ASCII));
+                    String first = in.readLine();
+                    if (first == null) continue;
+                    String route = first.split(" ")[1];
+                    String line;
+                    while ((line = in.readLine()) != null && !line.isEmpty()) {}
+                    if (route.equals("/book")) {
+                        respond(client, "text/html; charset=utf-8",
+                                "<html><a href='/download'>下载 PDF</a></html>");
+                    } else if (route.equals("/download")) {
+                        respond(client, "text/html; charset=utf-8",
+                                "<html><a href='/files/real.pdf'>Download PDF</a></html>");
+                    } else if (route.equals("/files/real.pdf")) {
+                        respond(client, "application/pdf", "%PDF-1.7\nTest content");
+                    } else if (route.equals("/fake.pdf")) {
+                        respond(client, "text/html", "<html>请先登录，无法直接下载</html>");
+                    } else {
+                        respond(client, "text/html", "<html>No file</html>");
+                    }
+                } catch (IOException ex) {
+                    if (server.isClosed()) return;
+                    throw new RuntimeException(ex);
+                }
+            }
+        }, "ebook-test-http-server");
+        worker.setDaemon(true);
+        worker.start();
+        String base = "http://127.0.0.1:" + server.getLocalPort();
         try {
             LinkResolver.FileLink file = LinkResolver.resolve(base + "/book", null, "测试书籍",
                     "JUnit", url -> null, message -> {});
             assertNotNull("Must follow HTML pages to real file", file);
             assertEquals(base + "/files/real.pdf", file.url);
             assertEquals("real.pdf", file.name);
-
-            assertNull("HTML disguised as a .pdf must not be enqueued",
+            assertNull("HTML disguised as PDF must not be treated as downloadable file",
                     LinkResolver.resolve(base + "/fake.pdf", null, "测试书籍",
                             "JUnit", url -> null, message -> {}));
-        } finally { server.stop(0); }
+        } finally {
+            server.close();
+            worker.join(1000);
+        }
     }
 }
