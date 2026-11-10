@@ -183,8 +183,7 @@ public final class SiteVerifier {
             String href = link.attr("href").toLowerCase(Locale.ROOT);
             if (href.isEmpty() || href.startsWith("#") || href.startsWith("javascript:")) continue;
             String label = link.text();
-            if (LinkResolver.matchScore(keyword, label) >= 65
-                    && !label.trim().equalsIgnoreCase(keyword.trim())) matches++;
+            if (LinkResolver.matchScore(keyword, label) >= 65) matches++;
             if (matches >= 3) break;
         }
         if (matches > 0)
