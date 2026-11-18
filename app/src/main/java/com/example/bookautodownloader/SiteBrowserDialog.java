@@ -197,6 +197,10 @@ public final class SiteBrowserDialog {
         decisions.addView(auto, flex(activity, 1.0f, 43));
         decisions.addView(confirmed, flex(activity, 1.45f, 43));
         decisions.addView(invalid, flex(activity, 1.1f, 43));
+        Button applyCurrent = button(activity, "使用当前搜索网址更新网站模板", false);
+        LinearLayout.LayoutParams applyLp = new LinearLayout.LayoutParams(-1, dp(activity, 35));
+        applyLp.setMargins(dp(activity, 3), dp(activity, 4), dp(activity, 3), 0);
+        root.addView(applyCurrent, applyLp);
 
         final boolean[] mainError = { false };
         final boolean[] loaded = { false };
@@ -344,6 +348,37 @@ public final class SiteBrowserDialog {
                     Toast.makeText(activity, "已标记，请返回网站管理保存", Toast.LENGTH_LONG).show();
                     dialog.dismiss();
                 }).show());
+
+        applyCurrent.setOnClickListener(v -> {
+            String current = web.getUrl();
+            if (!LinkResolver.webUrl(current)) {
+                Toast.makeText(activity, "网页地址无效", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            try {
+                SearchTemplate.Conversion suggested = SearchTemplate.convert(current);
+                String details = "当前网址：\n" + current
+                        + "\n\n建议保存为：\n" + suggested.template
+                        + "\n\n" + suggested.note
+                        + "\n\n若网站使用特殊的搜索路径，可返回网站管理的编辑功能手动修正。";
+                new AlertDialog.Builder(activity)
+                        .setTitle("更新站点搜索模板？")
+                        .setMessage(details)
+                        .setNegativeButton("取消", null)
+                        .setPositiveButton("采用此模板", (d, which) -> {
+                            site.template = suggested.template;
+                            site.guessed = suggested.guessed;
+                            site.checkLevel = 0;
+                            site.checkMessage = "搜索网址已更新，请重新验证";
+                            site.checkedAt = 0;
+                            callback.onUpdated();
+                            Toast.makeText(activity, "已更新网址，请返回网站管理保存", Toast.LENGTH_LONG).show();
+                            dialog.dismiss();
+                        }).show();
+            } catch (IllegalArgumentException e) {
+                Toast.makeText(activity, e.getMessage(), Toast.LENGTH_LONG).show();
+            }
+        });
 
         dialog.setOnShowListener(d -> {
             if (dialog.getWindow() != null) {
