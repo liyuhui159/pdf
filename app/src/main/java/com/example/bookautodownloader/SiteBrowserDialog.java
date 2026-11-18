@@ -326,6 +326,7 @@ public final class SiteBrowserDialog {
                         site.checkedAt = System.currentTimeMillis();
                         site.guessed = false;
                         callback.onUpdated();
+                        Toast.makeText(activity, "已记录结果，请返回网站管理保存", Toast.LENGTH_LONG).show();
                         dialog.dismiss();
                     }).show();
         });
@@ -340,6 +341,7 @@ public final class SiteBrowserDialog {
                     site.checkMessage = "人工检查：网址无法正常完成搜索";
                     site.checkedAt = System.currentTimeMillis();
                     callback.onUpdated();
+                    Toast.makeText(activity, "已标记，请返回网站管理保存", Toast.LENGTH_LONG).show();
                     dialog.dismiss();
                 }).show());
 
