@@ -67,7 +67,10 @@ public final class SiteVerifier {
         long start = System.nanoTime();
         HttpURLConnection connection = null;
         try {
-            String requested = testUrl(template, phrase);
+            // Shuge's website ?q= isn't its catalog API. Check the official
+            // public read-only endpoint instead of interpreting a homepage HTTP 200.
+            String requested = ShugeCatalog.isShuge(template)
+                    ? ShugeCatalog.apiUrl(phrase) : testUrl(template, phrase);
             connection = (HttpURLConnection) new URL(requested).openConnection();
             connection.setInstanceFollowRedirects(true);
             connection.setConnectTimeout(10000);
@@ -98,6 +101,14 @@ public final class SiteVerifier {
                     catch (Exception ex) { cs = StandardCharsets.UTF_8; }
                     body = new String(out.toByteArray(), cs);
                 }
+            }
+            if (ShugeCatalog.isShuge(template) && code >= 200 && code < 300) {
+                int n = ShugeCatalog.totalItems(body);
+                int level = n > 0 ? CONFIRMED : UNCERTAIN;
+                String message = n > 0
+                        ? "书格公开目录接口可用，查到 " + n + " 条书籍"
+                        : "书格接口可访问，本次未返回匹配书籍；可尝试繁体书名";
+                return new Result(level, code, message, url, phrase, elapsed(start));
             }
             Result analysis = inspect(code, contentType, body, phrase, url);
             return new Result(analysis.level, code, analysis.message, url, phrase, elapsed(start));
@@ -151,6 +162,14 @@ public final class SiteVerifier {
             return new Result(UNCERTAIN, status, "页面需要验证/登录或阻止了自动访问", url, keyword, 0);
 
         if (type.contains("json") || text.trim().startsWith("{")) {
+            try {
+                if (text.contains("\"items\"") && text.contains("\"pagination\"")) {
+                    int items = ShugeCatalog.totalItems(content);
+                    return new Result(items > 0 ? CONFIRMED : UNCERTAIN, status,
+                            items > 0 ? "公开资源目录返回 " + items + " 条匹配记录"
+                                    : "资源目录响应正常，当前书名无匹配结果", url, keyword, 0);
+                }
+            } catch (Exception ignored) {}
             Matcher m = JSON_COUNT.matcher(text);
             if (JSON_RESULTS.matcher(text).find()) {
                 if (m.find()) {
