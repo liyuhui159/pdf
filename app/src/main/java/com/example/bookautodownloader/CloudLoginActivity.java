@@ -399,11 +399,8 @@ public final class CloudLoginActivity extends Activity {
         String ref = browser != null ? browser.getUrl() : originalUrl;
         String agent = browser != null ? browser.getSettings().getUserAgentString() : "";
         String word = keyword;
-        if (CloudLinkHandler.isCloud(url)) {
-            status.setText("这是云盘页面地址，尚非文件直链。请在网页内选择文件并用网盘官方按钮下载");
-            browser.loadUrl(url);
-            return;
-        }
+        // Even a cloud host can return a real authorized file after login.
+        // The resolver checks content type and file magic before enqueueing.
         status.setText("正在验证是否为真正的文件响应…");
         new Thread(() -> {
             LinkResolver.FileLink file = LinkResolver.resolve(url, ref, word, agent,
