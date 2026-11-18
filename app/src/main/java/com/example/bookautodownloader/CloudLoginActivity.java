@@ -63,6 +63,8 @@ public final class CloudLoginActivity extends Activity {
     private String originalUrl;
     private String keyword;
     private boolean destroyed;
+    private boolean visitedLoginPage;
+    private String lastAutoScannedUrl = "";
 
     private int dp(float n) {
         return (int)(n * getResources().getDisplayMetrics().density + .5f);
@@ -238,9 +240,24 @@ public final class CloudLoginActivity extends Activity {
                 address.setText(url);
                 // Persists only website cookies/session; never accesses form inputs.
                 CookieManager.getInstance().flush();
-                status.setText(CloudLinkHandler.looksLikeWebLogin(url)
+                boolean loginPage = CloudLinkHandler.looksLikeWebLogin(url);
+                status.setText(loginPage
                         ? "请在网站页面完成登录；支持系统密码管理器自动填充"
                         : "网页已加载。选择网盘内的文件或点击“识别可下载链接”");
+                if (loginPage) {
+                    visitedLoginPage = true;
+                } else if (CloudLinkHandler.isCloud(url)
+                        && !url.equals(lastAutoScannedUrl)) {
+                    // After redirecting back from login, scan only the current
+                    // visible page. Never read passwords or hidden API tokens.
+                    lastAutoScannedUrl = url;
+                    view.postDelayed(() -> {
+                        if (!destroyed && browser == view
+                                && url.equals(browser.getUrl())) {
+                            inspectVisibleLinks();
+                        }
+                    }, visitedLoginPage ? 1200L : 1800L);
+                }
             }
             @Override public void onReceivedError(WebView view, WebResourceRequest req,
                                                    WebResourceError error) {
