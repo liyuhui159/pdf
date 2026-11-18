@@ -57,6 +57,16 @@ public final class ShugeCatalog {
         } catch (Exception ex) { return false; }
     }
 
+    /** Limited common-title fallback only; avoids silently rewriting original search. */
+    public static String alternateKeyword(String keyword) {
+        if (keyword == null) return "";
+        return keyword.replace("游", "遊").replace("记", "記")
+                .replace("红", "紅").replace("楼", "樓")
+                .replace("国", "國").replace("义", "義")
+                .replace("浒", "滸").replace("传", "傳")
+                .replace("书", "書").replace("术", "術");
+    }
+
     public static ArrayList<Book> parse(String body, String keyword) throws Exception {
         JSONObject root = new JSONObject(body);
         if (!root.optBoolean("success", false))
