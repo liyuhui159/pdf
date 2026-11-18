@@ -268,7 +268,23 @@ public final class SiteBrowserDialog {
                 }
             });
         });
+        final Dialog[] activeDialog = { null };
         web.setWebViewClient(new WebViewClient() {
+            @Override public boolean shouldOverrideUrlLoading(WebView view,
+                    WebResourceRequest request) {
+                String target = request == null || request.getUrl() == null
+                        ? "" : request.getUrl().toString();
+                if (request != null && request.isForMainFrame()
+                        && CloudLinkHandler.isCloud(target)) {
+                    if (activeDialog[0] != null) activeDialog[0].dismiss();
+                    Intent login = new Intent(activity, CloudLoginActivity.class);
+                    login.putExtra(CloudLoginActivity.EXTRA_URL, target);
+                    login.putExtra(CloudLoginActivity.EXTRA_KEYWORD, sample);
+                    activity.startActivity(login);
+                    return true;
+                }
+                return false;
+            }
             @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 super.onPageStarted(view, url, favicon);
                 loaded[0] = false;
@@ -356,6 +372,7 @@ public final class SiteBrowserDialog {
         // A full-height Dialog gives the weighted WebView an exact viewport;
         // AlertDialog's wrap-content custom panel can collapse the WebView on phones.
         Dialog dialog = new Dialog(activity);
+        activeDialog[0] = dialog;
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         dialog.setContentView(root);
         close.setOnClickListener(v -> dialog.dismiss());
