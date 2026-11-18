@@ -232,13 +232,13 @@ public final class SourceManager {
             label = "正在验证网站和书名搜索…";
             shade = BLUE;
         } else if (site.checkLevel == SiteVerifier.CONFIRMED) {
-            label = "验证通过 · " + site.checkMessage;
+            label = "搜索有效 · " + site.checkMessage;
             shade = GREEN;
         } else if (site.checkLevel == SiteVerifier.UNCERTAIN) {
-            label = "待确认 · " + site.checkMessage;
+            label = "需要确认 · " + site.checkMessage;
             shade = AMBER;
         } else if (site.checkLevel == SiteVerifier.FAILED) {
-            label = "验证失败 · " + site.checkMessage;
+            label = "无法使用 · " + site.checkMessage;
             shade = RED;
         } else {
             label = "尚未检查 · 打开真实网页查看搜索结果";
@@ -396,7 +396,7 @@ public final class SourceManager {
                 LinearLayout tools = new LinearLayout(activity);
                 tools.setGravity(Gravity.CENTER_VERTICAL);
                 card.addView(tools);
-                Button verify = action(activity, "浏览器验证", 0);
+                Button verify = action(activity, "◉ 打开验证", 0);
                 verify.setEnabled(!site.testing);
                 verify.setAlpha(site.testing ? .6f : 1f);
                 Button modify = action(activity, "编辑", 1);
