@@ -27,6 +27,9 @@ import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.ImageView;
+import android.widget.ProgressBar;
+import android.view.View;
+import android.view.inputmethod.EditorInfo;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -56,6 +59,11 @@ public class MainActivity extends Activity {
     private CheckBox autoDownloadCheck;
     private LinearLayout resultBox;
     private TextView logView;
+    private TextView searchStatus;
+    private Button searchButton;
+    private ProgressBar searchProgress;
+    private ScrollView homeScroll;
+    private int searchGeneration = 0;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private static final String PREF = "book_downloader_pref_v4";
     private static final String DEFAULT_TEMPLATES = "https://gutendex.com/books?search={keyword}\nhttps://www.gutenberg.org/ebooks/search/?query={keyword}";
@@ -68,155 +76,293 @@ public class MainActivity extends Activity {
     }
 
     private void buildUi() {
-        ScrollView scroll = new ScrollView(this);
-        scroll.setBackgroundColor(Color.parseColor("#F4F7FB"));
+        final int dark = Color.parseColor("#1E2D4B");
+        final int muted = Color.parseColor("#687995");
+        final int blue = Color.parseColor("#2869F3");
+
+        LinearLayout screen = new LinearLayout(this);
+        screen.setOrientation(LinearLayout.VERTICAL);
+        screen.setBackgroundColor(Color.parseColor("#F4F7FD"));
+
+        homeScroll = new ScrollView(this);
+        homeScroll.setFillViewport(true);
+        homeScroll.setVerticalScrollBarEnabled(false);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(14), dp(14), dp(14), dp(20));
-        scroll.addView(root);
+        root.setPadding(dp(16), dp(15), dp(16), dp(20));
+        homeScroll.addView(root);
+        screen.addView(homeScroll, new LinearLayout.LayoutParams(-1, 0, 1));
 
-        LinearLayout header = card();
-        header.setGravity(Gravity.CENTER_HORIZONTAL);
+        // Branded compact header, optimized for narrow portrait phone screens.
+        LinearLayout hero = new LinearLayout(this);
+        hero.setGravity(Gravity.CENTER_VERTICAL);
+        hero.setPadding(dp(16), dp(16), dp(15), dp(16));
+        GradientDrawable heroBg = new GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                new int[]{Color.parseColor("#124ED8"), Color.parseColor("#119FEF")});
+        heroBg.setCornerRadius(dp(20));
+        hero.setBackground(heroBg);
         ImageView appLogo = new ImageView(this);
         appLogo.setImageResource(R.drawable.ic_book_search);
         appLogo.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(dp(70), dp(70));
-        iconParams.setMargins(0, 0, 0, dp(8));
-        header.addView(appLogo, iconParams);
+        LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(dp(62), dp(62));
+        iconParams.setMargins(0, 0, dp(13), 0);
+        hero.addView(appLogo, iconParams);
+        LinearLayout heroText = new LinearLayout(this);
+        heroText.setOrientation(LinearLayout.VERTICAL);
         TextView title = new TextView(this);
-        title.setText("书名自动检索下载助手");
-        title.setTextSize(23);
+        title.setText("书名检索助手");
+        title.setTextSize(22);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setTextColor(Color.parseColor("#1F2A44"));
-        title.setGravity(Gravity.CENTER);
-        header.addView(title, new LinearLayout.LayoutParams(-1, -2));
-
-        TextView tip = new TextView(this);
-        tip.setText("一个APP内完成：多资源站搜索、顺序优先搜索、网页登录分析下载链接。仅用于自有、授权、公版或允许分发的资料源。");
-        tip.setTextSize(13);
-        tip.setTextColor(Color.parseColor("#5B6475"));
-        tip.setGravity(Gravity.CENTER);
-        tip.setPadding(0, dp(8), 0, dp(8));
-        header.addView(tip, new LinearLayout.LayoutParams(-1, -2));
-
-        Button webAnalyzer = primaryButton("进入网页登录分析器（适合需要登录的网站）");
-        webAnalyzer.setOnClickListener(v -> {
-            Intent intent = new Intent(this, WebAnalyzeActivity.class);
-            intent.putExtra("keyword", bookInput == null ? "" : bookInput.getText().toString().trim());
-            startActivity(intent);
-        });
-        header.addView(webAnalyzer, new LinearLayout.LayoutParams(-1, -2));
-
-        Button downloadManager = secondaryButton("↓ 下载管理 · 查看进度与已下载文件");
-        downloadManager.setOnClickListener(v ->
-                startActivity(new Intent(this, DownloadManagerActivity.class)));
-        LinearLayout.LayoutParams managerParams = new LinearLayout.LayoutParams(-1, dp(52));
-        managerParams.setMargins(0, dp(8), 0, 0);
-        header.addView(downloadManager, managerParams);
-        root.addView(header);
+        title.setTextColor(Color.WHITE);
+        heroText.addView(title);
+        TextView subtitle = new TextView(this);
+        subtitle.setText("搜索 · 网页解析 · 下载管理");
+        subtitle.setTextSize(12);
+        subtitle.setTextColor(Color.parseColor("#E3F0FF"));
+        subtitle.setPadding(0, dp(5), 0, 0);
+        heroText.addView(subtitle);
+        hero.addView(heroText, new LinearLayout.LayoutParams(0, -2, 1));
+        LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(-1, -2);
+        hlp.setMargins(0, 0, 0, dp(13));
+        root.addView(hero, hlp);
 
         LinearLayout searchCard = card();
-        addLabel(searchCard, "书名 / 资料名");
-        bookInput = input("例如：西门子 S7-1200 PLC 入门教程", 2);
-        searchCard.addView(bookInput, new LinearLayout.LayoutParams(-1, -2));
+        addLabel(searchCard, "搜索你需要的电子书");
+        TextView searchHint = new TextView(this);
+        searchHint.setText("输入书名、作者或资料关键词");
+        searchHint.setTextColor(muted);
+        searchHint.setTextSize(12);
+        searchHint.setPadding(0, 0, 0, dp(10));
+        searchCard.addView(searchHint);
 
-        LinearLayout row1 = new LinearLayout(this);
-        row1.setOrientation(LinearLayout.HORIZONTAL);
-        row1.setPadding(0, dp(8), 0, 0);
-        searchCard.addView(row1);
-        Button read = secondaryButton("读取剪贴板");
-        read.setOnClickListener(v -> readClipboard(false));
-        row1.addView(read, weight(1));
-        Button readSearch = primaryButton("读取并搜索全部");
-        readSearch.setOnClickListener(v -> readClipboard(true));
-        row1.addView(readSearch, weight(1));
+        bookInput = input("例如：机械设计手册", 1);
+        bookInput.setSingleLine(true);
+        bookInput.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
+        bookInput.setOnEditorActionListener((v, actionId, event) -> {
+            if (actionId == EditorInfo.IME_ACTION_SEARCH) {
+                searchAll(false);
+                return true;
+            }
+            return false;
+        });
+        searchCard.addView(bookInput, new LinearLayout.LayoutParams(-1, dp(52)));
+
+        searchButton = primaryButton("⌕  搜索已选网站");
+        searchButton.setTextSize(16);
+        searchButton.setTypeface(Typeface.DEFAULT_BOLD);
+        searchButton.setOnClickListener(v -> searchAll(false));
+        LinearLayout.LayoutParams searchLp = new LinearLayout.LayoutParams(-1, dp(51));
+        searchLp.setMargins(0, dp(11), 0, dp(5));
+        searchCard.addView(searchButton, searchLp);
+
+        LinearLayout otherSearch = new LinearLayout(this);
+        otherSearch.setGravity(Gravity.CENTER_VERTICAL);
+        Button priority = secondaryButton("按顺序优先搜索");
+        priority.setOnClickListener(v -> searchAll(true));
+        otherSearch.addView(priority, navWeight(1));
+        Button paste = secondaryButton("粘贴并搜索");
+        paste.setOnClickListener(v -> readClipboard(true));
+        otherSearch.addView(paste, navWeight(1));
+        searchCard.addView(otherSearch);
+
+        searchProgress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        searchProgress.setIndeterminate(true);
+        searchProgress.setVisibility(View.GONE);
+        LinearLayout.LayoutParams progLp = new LinearLayout.LayoutParams(-1, dp(3));
+        progLp.setMargins(0, dp(8), 0, 0);
+        searchCard.addView(searchProgress, progLp);
         root.addView(searchCard);
 
+        // Source selection remains a small, clear step in the search flow.
         LinearLayout sourceCard = card();
-        addLabel(sourceCard, "搜索网站（独立编号，可勾选）");
-        TextView sourceTip = new TextView(this);
-        sourceTip.setText("点击“管理搜索网站”，可勾选、验证、编辑或添加网站。验证会测试网站及书名搜索，不会自动下载。");
-        sourceTip.setTextSize(12);
-        sourceTip.setTextColor(Color.parseColor("#697386"));
-        sourceTip.setPadding(0, 0, 0, dp(6));
-        sourceCard.addView(sourceTip);
+        LinearLayout srcTop = new LinearLayout(this);
+        srcTop.setGravity(Gravity.CENTER_VERTICAL);
+        TextView srcTitle = new TextView(this);
+        srcTitle.setText("搜索网站");
+        srcTitle.setTextSize(16);
+        srcTitle.setTextColor(dark);
+        srcTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        srcTop.addView(srcTitle, new LinearLayout.LayoutParams(0, -2, 1));
+        Button manage = secondaryButton("管理 / 验证  ›");
+        manage.setTextSize(13);
+        manage.setOnClickListener(v -> openSourceManager());
+        srcTop.addView(manage, new LinearLayout.LayoutParams(dp(125), dp(42)));
+        sourceCard.addView(srcTop);
 
         sourceSummary = new TextView(this);
-        sourceSummary.setTextSize(14);
-        sourceSummary.setTextColor(Color.parseColor("#263248"));
-        sourceSummary.setPadding(dp(12), dp(12), dp(12), dp(12));
+        sourceSummary.setTextSize(13);
+        sourceSummary.setTextColor(muted);
+        sourceSummary.setPadding(dp(11), dp(10), dp(11), dp(10));
         GradientDrawable srcBg = new GradientDrawable();
-        srcBg.setColor(Color.parseColor("#F9FBFE"));
-        srcBg.setCornerRadius(dp(9));
-        srcBg.setStroke(dp(1), Color.parseColor("#D8E0EC"));
+        srcBg.setColor(Color.parseColor("#F2F6FF"));
+        srcBg.setCornerRadius(dp(11));
         sourceSummary.setBackground(srcBg);
-        sourceCard.addView(sourceSummary, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout.LayoutParams sumLp = new LinearLayout.LayoutParams(-1, -2);
+        sumLp.setMargins(0, dp(7), 0, 0);
+        sourceCard.addView(sourceSummary, sumLp);
+        sourceSummary.setOnClickListener(v -> openSourceManager());
+        root.addView(sourceCard);
 
-        LinearLayout row2 = new LinearLayout(this);
-        row2.setOrientation(LinearLayout.HORIZONTAL);
-        row2.setPadding(0, dp(8), 0, 0);
-        sourceCard.addView(row2);
-        Button manage = primaryButton("管理搜索网站");
-        manage.setOnClickListener(v -> SourceManager.open(this, sites,
-                bookInput.getText().toString().trim(), updated -> {
+        LinearLayout resultsCard = card();
+        LinearLayout resultHead = new LinearLayout(this);
+        resultHead.setGravity(Gravity.CENTER_VERTICAL);
+        TextView resultTitle = new TextView(this);
+        resultTitle.setText("搜索结果");
+        resultTitle.setTextColor(dark);
+        resultTitle.setTextSize(17);
+        resultTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        resultHead.addView(resultTitle, new LinearLayout.LayoutParams(0, -2, 1));
+        searchStatus = new TextView(this);
+        searchStatus.setText("准备就绪");
+        searchStatus.setTextColor(blue);
+        searchStatus.setTextSize(12);
+        resultHead.addView(searchStatus);
+        resultsCard.addView(resultHead);
+        resultBox = new LinearLayout(this);
+        resultBox.setOrientation(LinearLayout.VERTICAL);
+        TextView empty = new TextView(this);
+        empty.setText("输入关键词，点击搜索即可查看结果。");
+        empty.setTextSize(13);
+        empty.setTextColor(muted);
+        empty.setPadding(dp(3), dp(18), dp(3), dp(12));
+        resultBox.addView(empty);
+        LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(-1, -2);
+        rlp.setMargins(0, dp(6), 0, 0);
+        resultsCard.addView(resultBox, rlp);
+        root.addView(resultsCard);
+
+        LinearLayout quickCard = card();
+        addLabel(quickCard, "网页工具");
+        TextView quickHint = new TextView(this);
+        quickHint.setText("登录后才能下载的资料，可进入网页分析器。");
+        quickHint.setTextSize(12);
+        quickHint.setTextColor(muted);
+        quickHint.setPadding(0, 0, 0, dp(7));
+        quickCard.addView(quickHint);
+        LinearLayout quickRow = new LinearLayout(this);
+        Button web = secondaryButton("◉  网页分析器");
+        web.setOnClickListener(v -> openWebAnalyzer());
+        quickRow.addView(web, navWeight(1));
+        Button downloads = secondaryButton("↓  下载管理");
+        downloads.setOnClickListener(v -> openDownloads());
+        quickRow.addView(downloads, navWeight(1));
+        quickCard.addView(quickRow);
+        root.addView(quickCard);
+
+        // Advanced fields are available, but do not crowd the primary journey.
+        LinearLayout optionCard = card();
+        Button expand = secondaryButton("⚙  高级搜索设置  ▾");
+        optionCard.addView(expand, new LinearLayout.LayoutParams(-1, dp(44)));
+        LinearLayout advanced = new LinearLayout(this);
+        advanced.setOrientation(LinearLayout.VERTICAL);
+        advanced.setVisibility(View.GONE);
+        advanced.setPadding(0, dp(10), 0, 0);
+        TextView extTip = new TextView(this);
+        extTip.setText("允许识别的文件类型");
+        extTip.setTextColor(muted);
+        extTip.setTextSize(12);
+        advanced.addView(extTip);
+        extInput = input("pdf,epub,mobi,txt,zip,rar,7z", 1);
+        extInput.setSingleLine(true);
+        LinearLayout.LayoutParams extLp = new LinearLayout.LayoutParams(-1, dp(48));
+        extLp.setMargins(0, dp(7), 0, dp(6));
+        advanced.addView(extInput, extLp);
+        autoDownloadCheck = new CheckBox(this);
+        autoDownloadCheck.setText("自动下载最高匹配结果（建议确认来源后再启用）");
+        autoDownloadCheck.setTextSize(13);
+        autoDownloadCheck.setTextColor(dark);
+        advanced.addView(autoDownloadCheck);
+
+        Button openAll = secondaryButton("在外部浏览器打开已选搜索页");
+        openAll.setOnClickListener(v -> openAllSearchPages());
+        advanced.addView(openAll, new LinearLayout.LayoutParams(-1, dp(44)));
+        optionCard.addView(advanced);
+        expand.setOnClickListener(v -> {
+            boolean show = advanced.getVisibility() != View.VISIBLE;
+            advanced.setVisibility(show ? View.VISIBLE : View.GONE);
+            expand.setText(show ? "⚙  收起高级设置  ▴" : "⚙  高级搜索设置  ▾");
+        });
+        root.addView(optionCard);
+
+        LinearLayout logCard = card();
+        Button showLog = secondaryButton("查看运行日志  ▾");
+        logCard.addView(showLog, new LinearLayout.LayoutParams(-1, dp(42)));
+        logView = new TextView(this);
+        logView.setTextSize(11);
+        logView.setTextColor(Color.parseColor("#485772"));
+        logView.setTextIsSelectable(true);
+        logView.setPadding(dp(4), dp(10), dp(4), dp(4));
+        logView.setVisibility(View.GONE);
+        logCard.addView(logView);
+        showLog.setOnClickListener(v -> {
+            boolean show = logView.getVisibility() != View.VISIBLE;
+            logView.setVisibility(show ? View.VISIBLE : View.GONE);
+            showLog.setText(show ? "收起运行日志  ▴" : "查看运行日志  ▾");
+        });
+        root.addView(logCard);
+
+        // Fixed bottom navigation: key destinations never disappear on scroll.
+        LinearLayout nav = new LinearLayout(this);
+        nav.setGravity(Gravity.CENTER_VERTICAL);
+        nav.setPadding(dp(10), dp(8), dp(10), dp(10));
+        nav.setBackgroundColor(Color.WHITE);
+        Button home = primaryButton("⌕  搜索");
+        home.setOnClickListener(v -> homeScroll.smoothScrollTo(0, 0));
+        nav.addView(home, navWeight(1));
+        Button sitesButton = bottomButton("▤  网站");
+        sitesButton.setOnClickListener(v -> openSourceManager());
+        nav.addView(sitesButton, navWeight(1));
+        Button filesButton = bottomButton("↓  下载");
+        filesButton.setOnClickListener(v -> openDownloads());
+        nav.addView(filesButton, navWeight(1));
+        Button browser = bottomButton("◉  网页");
+        browser.setOnClickListener(v -> openWebAnalyzer());
+        nav.addView(browser, navWeight(1));
+        screen.addView(nav, new LinearLayout.LayoutParams(-1, dp(63)));
+        setContentView(screen);
+    }
+
+    private LinearLayout.LayoutParams navWeight(int weight) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(43), weight);
+        lp.setMargins(dp(3), 0, dp(3), 0);
+        return lp;
+    }
+
+    private Button bottomButton(String title) {
+        Button b = secondaryButton(title);
+        b.setTextSize(12);
+        return b;
+    }
+
+    private void openSourceManager() {
+        SourceManager.open(this, sites, bookInput.getText().toString().trim(), updated -> {
             sites.clear();
             sites.addAll(updated);
             saveSettings();
             updateSourceSummary();
-            toast("网站列表已保存");
-        }));
-        row2.addView(manage, weight(1));
-        Button openAll = secondaryButton("打开已选网站");
-        openAll.setOnClickListener(v -> openAllSearchPages());
-        row2.addView(openAll, weight(1));
-        root.addView(sourceCard);
+            toast("搜索网站已保存");
+        });
+    }
 
-        LinearLayout optionCard = card();
-        addLabel(optionCard, "搜索和下载设置");
-        TextView extTip = new TextView(this);
-        extTip.setText("允许识别的文件类型/关键词：");
-        extTip.setTextSize(12);
-        extTip.setTextColor(Color.parseColor("#697386"));
-        optionCard.addView(extTip);
-        extInput = input("pdf,epub,mobi,txt,zip,rar,7z", 1);
-        optionCard.addView(extInput, new LinearLayout.LayoutParams(-1, -2));
-        autoDownloadCheck = new CheckBox(this);
-        autoDownloadCheck.setText("搜索后自动下载最高匹配结果（建议测试稳定后再开启）");
-        autoDownloadCheck.setTextColor(Color.parseColor("#263248"));
-        optionCard.addView(autoDownloadCheck);
+    private void openDownloads() {
+        startActivity(new Intent(this, DownloadManagerActivity.class));
+    }
 
-        LinearLayout row3 = new LinearLayout(this);
-        row3.setOrientation(LinearLayout.HORIZONTAL);
-        row3.setPadding(0, dp(8), 0, 0);
-        optionCard.addView(row3);
-        Button searchAll = primaryButton("同时搜索全部");
-        searchAll.setOnClickListener(v -> searchAll(false));
-        row3.addView(searchAll, weight(1));
-        Button searchPriority = primaryButton("按顺序优先搜索");
-        searchPriority.setOnClickListener(v -> searchAll(true));
-        row3.addView(searchPriority, weight(1));
-        root.addView(optionCard);
+    private void openWebAnalyzer() {
+        Intent intent = new Intent(this, WebAnalyzeActivity.class);
+        intent.putExtra("keyword", bookInput.getText().toString().trim());
+        startActivity(intent);
+    }
 
-        LinearLayout resultsCard = card();
-        addLabel(resultsCard, "搜索结果（仅来自已勾选网站）");
-        resultBox = new LinearLayout(this);
-        resultBox.setOrientation(LinearLayout.VERTICAL);
-        TextView empty = new TextView(this);
-        empty.setText("还没有搜索结果。先填写书名，在“管理网站”中勾选要搜索的站点。需要登录的网站可用顶部的网页登录分析器。");
-        empty.setTextColor(Color.parseColor("#697386"));
-        resultBox.addView(empty);
-        resultsCard.addView(resultBox, new LinearLayout.LayoutParams(-1, -2));
-        root.addView(resultsCard);
-
-        LinearLayout logCard = card();
-        addLabel(logCard, "运行日志");
-        logView = new TextView(this);
-        logView.setTextSize(12);
-        logView.setTextColor(Color.parseColor("#39445A"));
-        logCard.addView(logView, new LinearLayout.LayoutParams(-1, -2));
-        root.addView(logCard);
-
-        setContentView(scroll);
+    private void setSearchLoading(boolean loading, String status) {
+        if (searchButton != null) {
+            searchButton.setEnabled(!loading);
+            searchButton.setAlpha(loading ? .65f : 1f);
+            searchButton.setText(loading ? "正在搜索…" : "⌕  搜索已选网站");
+        }
+        if (searchProgress != null) searchProgress.setVisibility(loading ? View.VISIBLE : View.GONE);
+        if (searchStatus != null) searchStatus.setText(status);
     }
 
     private LinearLayout card() {
