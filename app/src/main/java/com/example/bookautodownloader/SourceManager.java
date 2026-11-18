@@ -81,14 +81,16 @@ public final class SourceManager {
                     JSONObject obj = arr.optJSONObject(i);
                     if (obj == null) continue;
                     String template = obj.optString("template", "");
+                    boolean shugeFixed = ShugeCatalog.incorrectHomeTemplate(template);
+                    if (shugeFixed) template = ShugeCatalog.browserTemplate();
                     if (!LinkResolver.webUrl(template) || !(template.contains("{keyword}") || template.contains("{keyword_raw}"))) continue;
                     Site site = new Site(obj.optInt("id", i + 1),
                             obj.optString("name", SearchTemplate.defaultName(template)),
                             template, obj.optBoolean("enabled", true),
                             obj.optBoolean("guessed", false));
-                    site.checkLevel = obj.optInt("checkLevel", 0);
-                    site.checkMessage = obj.optString("checkMessage", "");
-                    site.checkedAt = obj.optLong("checkedAt", 0L);
+                    site.checkLevel = shugeFixed ? 0 : obj.optInt("checkLevel", 0);
+                    site.checkMessage = shugeFixed ? "已修复旧搜索参数，请重新验证" : obj.optString("checkMessage", "");
+                    site.checkedAt = shugeFixed ? 0L : obj.optLong("checkedAt", 0L);
                     list.add(site);
                 }
                 return list;
