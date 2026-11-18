@@ -284,7 +284,7 @@ public final class CloudLoginActivity extends Activity {
             toast("Android 8.0 以下需要依赖键盘或密码管理器自己的填充功能");
             return;
         }
-        AutofillManager manager = (AutofillManager) getSystemService(Context.AUTOFILL_SERVICE);
+        AutofillManager manager = getSystemService(AutofillManager.class);
         if (manager == null || !manager.isEnabled()) {
             new AlertDialog.Builder(this)
                     .setTitle("请先启用系统自动填充")
