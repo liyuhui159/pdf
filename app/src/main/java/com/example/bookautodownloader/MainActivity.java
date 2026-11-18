@@ -341,6 +341,15 @@ public class MainActivity extends Activity {
             sites.addAll(updated);
             saveSettings();
             updateSourceSummary();
+            searchGeneration++;
+            setSearchLoading(false, "网站配置已更新");
+            resultBox.removeAllViews();
+            TextView note = new TextView(this);
+            note.setText("网站选择已更新，请重新搜索以获得最新结果。");
+            note.setTextSize(13);
+            note.setTextColor(Color.parseColor("#687995"));
+            note.setPadding(dp(3), dp(15), dp(3), dp(12));
+            resultBox.addView(note);
             toast("搜索网站已保存");
         });
     }
