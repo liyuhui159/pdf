@@ -1,0 +1,492 @@
+package com.example.bookautodownloader;
+
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.app.Dialog;
+import android.graphics.drawable.ColorDrawable;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
+import android.content.Intent;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.GradientDrawable.Orientation;
+import android.net.Uri;
+import android.os.Build;
+import android.text.InputType;
+import android.view.Gravity;
+import android.view.Window;
+import android.view.View;
+import android.view.WindowManager;
+import android.view.inputmethod.EditorInfo;
+import android.webkit.CookieManager;
+import android.webkit.DownloadListener;
+import android.webkit.WebChromeClient;
+import android.webkit.WebResourceError;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.LinearLayout;
+import android.widget.ProgressBar;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import java.util.Locale;
+
+/**
+ * A real, in-app mini-browser for testing a selected ebook search source.
+ * "Opened" means navigation completed. It is NOT equated to "book search works":
+ * confirmation is explicitly user-initiated after inspecting the page.
+ */
+public final class SiteBrowserDialog {
+    public interface Updated { void onUpdated(); }
+
+    private static final int BLUE = Color.rgb(35, 100, 242);
+    private static final int INK = Color.rgb(30, 44, 69);
+    private static final int MUTED = Color.rgb(98, 112, 135);
+    private static final int BORDER = Color.rgb(221, 231, 244);
+    private static final int BG = Color.rgb(245, 249, 255);
+    private static final int GREEN = Color.rgb(26, 134, 86);
+    private static final int RED = Color.rgb(184, 62, 64);
+
+    private SiteBrowserDialog() {}
+
+    private static int dp(Context c, float value) {
+        return (int) (value * c.getResources().getDisplayMetrics().density + 0.5f);
+    }
+
+    private static GradientDrawable bg(Context c, int color, int edge, int r) {
+        GradientDrawable d = new GradientDrawable();
+        d.setColor(color);
+        d.setCornerRadius(dp(c, r));
+        if (edge != 0) d.setStroke(dp(c, 1), edge);
+        return d;
+    }
+
+    private static TextView text(Context c, String title, int size, int color, boolean bold) {
+        TextView t = new TextView(c);
+        t.setText(title);
+        t.setTextSize(size);
+        t.setTextColor(color);
+        if (bold) t.setTypeface(Typeface.DEFAULT_BOLD);
+        return t;
+    }
+
+    private static Button button(Context c, String title, boolean filled) {
+        Button b = new Button(c);
+        b.setText(title);
+        b.setTextSize(12);
+        b.setAllCaps(false);
+        b.setMinWidth(0);
+        b.setMinimumWidth(0);
+        b.setMinHeight(0);
+        b.setMinimumHeight(0);
+        b.setPadding(dp(c, 3), 0, dp(c, 3), 0);
+        b.setTextColor(filled ? Color.WHITE : BLUE);
+        b.setBackground(bg(c, filled ? BLUE : Color.rgb(220, 234, 255),
+                filled ? BLUE : Color.rgb(209, 225, 251), 10));
+        return b;
+    }
+
+    private static LinearLayout horizontal(Context c) {
+        LinearLayout l = new LinearLayout(c);
+        l.setOrientation(LinearLayout.HORIZONTAL);
+        l.setGravity(Gravity.CENTER_VERTICAL);
+        return l;
+    }
+
+    private static LinearLayout.LayoutParams flex(Context c, float f, int height) {
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(c, height), f);
+        p.setMargins(dp(c, 3), 0, dp(c, 3), 0);
+        return p;
+    }
+
+    private static boolean dialogIsActive(WebView view) {
+        return view != null && view.getParent() != null && view.getUrl() != null;
+    }
+
+    public static void show(Activity activity, SourceManager.Site site,
+                            String keyword, Updated callback) {
+        final String testUrl;
+        final String sample = keyword == null || keyword.trim().isEmpty()
+                ? "Pride and Prejudice" : keyword.trim();
+        try {
+            testUrl = SiteVerifier.testUrl(site.template, sample);
+        } catch (Exception ex) {
+            Toast.makeText(activity, "模板错误：" + ex.getMessage(), Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        LinearLayout root = new LinearLayout(activity);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(BG);
+        root.setPadding(dp(activity, 8), dp(activity, 7), dp(activity, 8), dp(activity, 8));
+
+        LinearLayout headRow = horizontal(activity);
+        TextView heading = text(activity, "网页验证 · #" +
+                String.format(Locale.ROOT, "%02d", site.id) + "  " + site.name,
+                17, INK, true);
+        heading.setPadding(dp(activity, 8), dp(activity, 4),
+                dp(activity, 4), dp(activity, 7));
+        headRow.addView(heading, new LinearLayout.LayoutParams(0, -2, 1));
+        Button close = button(activity, "关闭 ×", false);
+        headRow.addView(close, new LinearLayout.LayoutParams(dp(activity, 71), dp(activity, 35)));
+        root.addView(headRow);
+
+        TextView hint = text(activity, "真实 WebView 浏览器 · 测试书名：" + sample, 11, MUTED, false);
+        hint.setPadding(dp(activity, 8), 0, 0, dp(activity, 7));
+        root.addView(hint);
+
+        EditText address = new EditText(activity);
+        address.setSingleLine(true);
+        address.setTextSize(12);
+        address.setSelectAllOnFocus(true);
+        address.setTextColor(INK);
+        address.setHint("https://example.org/search?q=...");
+        address.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        address.setImeOptions(EditorInfo.IME_ACTION_GO);
+        address.setPadding(dp(activity, 12), dp(activity, 9), dp(activity, 12), dp(activity, 9));
+        address.setBackground(bg(activity, Color.WHITE, BORDER, 10));
+        address.setText(testUrl);
+        root.addView(address, new LinearLayout.LayoutParams(-1, dp(activity, 43)));
+
+        LinearLayout nav = horizontal(activity);
+        LinearLayout.LayoutParams navParams = new LinearLayout.LayoutParams(-1, dp(activity, 41));
+        navParams.setMargins(0, dp(activity, 7), 0, dp(activity, 6));
+        root.addView(nav, navParams);
+        Button back = button(activity, "‹ 后退", false);
+        Button next = button(activity, "前进 ›", false);
+        Button reload = button(activity, "刷新", false);
+        Button go = button(activity, "访问网址", true);
+        nav.addView(back, flex(activity, 1, 39));
+        nav.addView(next, flex(activity, 1, 39));
+        nav.addView(reload, flex(activity, 0.9f, 39));
+        nav.addView(go, flex(activity, 1.25f, 39));
+
+        LinearLayout searchBar = horizontal(activity);
+        TextView searchLabel = text(activity, "当前书名：" + sample, 12, INK, true);
+        searchLabel.setSingleLine(true);
+        searchLabel.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        searchBar.addView(searchLabel, new LinearLayout.LayoutParams(0, -2, 1));
+        Button nativeSearch = button(activity, "站内搜索", true);
+        searchBar.addView(nativeSearch,
+                new LinearLayout.LayoutParams(dp(activity, 104), dp(activity, 42)));
+        LinearLayout.LayoutParams searchBarParams = new LinearLayout.LayoutParams(-1, dp(activity, 47));
+        searchBarParams.setMargins(dp(activity, 4), 0, dp(activity, 3), dp(activity, 4));
+        root.addView(searchBar, searchBarParams);
+
+        ProgressBar progress = new ProgressBar(activity, null,
+                android.R.attr.progressBarStyleHorizontal);
+        progress.setMax(100);
+        progress.setProgress(0);
+        root.addView(progress, new LinearLayout.LayoutParams(-1, dp(activity, 3)));
+
+        TextView state = text(activity, "即将打开网址…", 12, BLUE, false);
+        state.setPadding(dp(activity, 7), dp(activity, 8), dp(activity, 7), dp(activity, 8));
+        root.addView(state);
+        WebView web = new WebView(activity);
+        web.setBackgroundColor(Color.WHITE);
+        web.setFocusable(true);
+        web.setFocusableInTouchMode(true);
+        web.getSettings().setJavaScriptEnabled(true);
+        web.getSettings().setDomStorageEnabled(true);
+        web.getSettings().setSupportZoom(true);
+        web.getSettings().setBuiltInZoomControls(true);
+        web.getSettings().setDisplayZoomControls(false);
+        web.getSettings().setJavaScriptCanOpenWindowsAutomatically(false);
+        web.getSettings().setAllowFileAccess(false);
+        web.getSettings().setAllowContentAccess(false);
+        CookieManager.getInstance().setAcceptCookie(true);
+        if (Build.VERSION.SDK_INT >= 21) {
+            CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
+        }
+        root.addView(web, new LinearLayout.LayoutParams(-1, 0, 1));
+
+        TextView help = text(activity,
+                "网页显示成功不代表搜索功能有效。请查看实际书籍列表，再手动确认。",
+                11, MUTED, false);
+        help.setPadding(dp(activity, 6), dp(activity, 8), dp(activity, 6), dp(activity, 6));
+        root.addView(help);
+
+        LinearLayout decisions = horizontal(activity);
+        root.addView(decisions, new LinearLayout.LayoutParams(-1, dp(activity, 47)));
+        Button auto = button(activity, "自动检测", false);
+        Button confirmed = button(activity, "确认搜索正常", true);
+        Button invalid = button(activity, "标记不可用", false);
+        decisions.addView(auto, flex(activity, 1.0f, 43));
+        decisions.addView(confirmed, flex(activity, 1.45f, 43));
+        decisions.addView(invalid, flex(activity, 1.1f, 43));
+        invalid.setTextColor(RED);
+        invalid.setBackground(bg(activity, Color.rgb(255, 227, 226),
+                Color.rgb(246, 206, 207), 10));
+        auto.setBackground(bg(activity, Color.rgb(214, 239, 247),
+                Color.rgb(190, 224, 238), 10));
+        Button applyCurrent = button(activity, "使用当前搜索网址更新网站模板", false);
+        LinearLayout.LayoutParams applyLp = new LinearLayout.LayoutParams(-1, dp(activity, 35));
+        applyLp.setMargins(dp(activity, 3), dp(activity, 4), dp(activity, 3), 0);
+        root.addView(applyCurrent, applyLp);
+
+        // Compact landscape/foldable layout keeps room for the actual webpage.
+        float availableDp = activity.getResources().getDisplayMetrics().heightPixels
+                / activity.getResources().getDisplayMetrics().density;
+        if (availableDp < 590f) {
+            hint.setVisibility(View.GONE);
+            help.setVisibility(View.GONE);
+            applyCurrent.setText("更新当前搜索网址");
+        }
+
+        final boolean[] mainError = { false };
+        final boolean[] loaded = { false };
+        final boolean[] nativeAutoStarted = { false };
+        nativeSearch.setOnClickListener(v -> {
+            String current = web.getUrl();
+            if (!LinkResolver.webUrl(current)) {
+                Toast.makeText(activity, "网页尚未准备好", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            state.setTextColor(BLUE);
+            state.setText("正在填写网站原生搜索框并提交：" + sample);
+            web.evaluateJavascript(NativeSiteSearch.script(sample), raw -> {
+                String result = raw == null ? "" : raw;
+                if (result.contains("no-search-field")) {
+                    state.setTextColor(RED);
+                    state.setText("当前页面没有可识别的搜索框，请点击网页内的搜索图标手动检索");
+                } else if (result.contains("filled-no-submit")) {
+                    state.setTextColor(MUTED);
+                    state.setText("已填写书名，请点击网站内的搜索按钮");
+                } else if (result.contains("error:")) {
+                    state.setTextColor(RED);
+                    state.setText("原生搜索提交失败，请直接点击网页搜索框");
+                } else {
+                    state.setTextColor(BLUE);
+                    state.setText("已提交网站自己的搜索框，检查结果列表");
+                }
+            });
+        });
+        final Dialog[] activeDialog = { null };
+        web.setWebViewClient(new WebViewClient() {
+            @Override public boolean shouldOverrideUrlLoading(WebView view,
+                    WebResourceRequest request) {
+                String target = request == null || request.getUrl() == null
+                        ? "" : request.getUrl().toString();
+                if (request != null && request.isForMainFrame()
+                        && CloudLinkHandler.isCloud(target)) {
+                    if (activeDialog[0] != null) activeDialog[0].dismiss();
+                    Intent login = new Intent(activity, CloudLoginActivity.class);
+                    login.putExtra(CloudLoginActivity.EXTRA_URL, target);
+                    login.putExtra(CloudLoginActivity.EXTRA_KEYWORD, sample);
+                    activity.startActivity(login);
+                    return true;
+                }
+                return false;
+            }
+            @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                super.onPageStarted(view, url, favicon);
+                loaded[0] = false;
+                mainError[0] = false;
+                state.setTextColor(BLUE);
+                state.setText("正在打开网页…");
+                if (LinkResolver.webUrl(url)) address.setText(url);
+            }
+
+            @Override public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                if (LinkResolver.webUrl(url)) address.setText(url);
+                if (!mainError[0]) {
+                    loaded[0] = true;
+                    state.setTextColor(GREEN);
+                    state.setText("网页已加载，请检查书名搜索结果是否正确");
+                }
+                progress.setProgress(100);
+                back.setEnabled(view.canGoBack());
+                next.setEnabled(view.canGoForward());
+                // The old ?q= URL loaded only Shuge's homepage. On first load
+                // also try the site's own visible search form exactly once.
+                if (ShugeCatalog.isShuge(site.template) && !nativeAutoStarted[0]) {
+                    nativeAutoStarted[0] = true;
+                    view.postDelayed(() -> {
+                        if (dialogIsActive(view)) nativeSearch.performClick();
+                    }, 950);
+                }
+            }
+
+            @Override public void onReceivedError(WebView view, WebResourceRequest req,
+                                                   WebResourceError err) {
+                if (req != null && req.isForMainFrame()) {
+                    loaded[0] = false;
+                    mainError[0] = true;
+                    state.setTextColor(RED);
+                    state.setText("主网页加载失败：" + err.getDescription());
+                }
+            }
+
+            @Override public void onReceivedHttpError(WebView view,
+                    WebResourceRequest request, WebResourceResponse response) {
+                if (request != null && request.isForMainFrame()
+                        && response != null && response.getStatusCode() >= 400) {
+                    mainError[0] = true;
+                    loaded[0] = false;
+                    state.setTextColor(RED);
+                    state.setText("网页返回 HTTP " + response.getStatusCode()
+                            + "，可能需要登录或限制访问");
+                }
+            }
+        });
+        web.setWebChromeClient(new WebChromeClient() {
+            @Override public void onProgressChanged(WebView view, int value) {
+                progress.setProgress(value);
+            }
+        });
+        web.setDownloadListener((url, ua, cd, mime, size) -> {
+            state.setTextColor(BLUE);
+            state.setText("检测到网页下载行为。下载文件请使用应用的网页登录分析器。");
+        });
+
+        Runnable navigate = () -> {
+            String url = address.getText().toString().trim();
+            if (!LinkResolver.webUrl(url)) {
+                Toast.makeText(activity, "仅支持 http/https 网址", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            web.loadUrl(url);
+        };
+        go.setOnClickListener(v -> navigate.run());
+        address.setOnEditorActionListener((v, action, event) -> {
+            if (action == EditorInfo.IME_ACTION_GO) {
+                navigate.run();
+                return true;
+            }
+            return false;
+        });
+        back.setOnClickListener(v -> { if (web.canGoBack()) web.goBack(); });
+        next.setOnClickListener(v -> { if (web.canGoForward()) web.goForward(); });
+        reload.setOnClickListener(v -> web.reload());
+        back.setEnabled(false);
+        next.setEnabled(false);
+
+        // A full-height Dialog gives the weighted WebView an exact viewport;
+        // AlertDialog's wrap-content custom panel can collapse the WebView on phones.
+        Dialog dialog = new Dialog(activity);
+        activeDialog[0] = dialog;
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        dialog.setContentView(root);
+        close.setOnClickListener(v -> dialog.dismiss());
+
+        auto.setOnClickListener(v -> {
+            auto.setEnabled(false);
+            auto.setText("检测中…");
+            String snapshot = site.template;
+            new Thread(() -> {
+                SiteVerifier.Result result = SiteVerifier.verify(snapshot, sample);
+                activity.runOnUiThread(() -> {
+                    if (!dialog.isShowing()) return;
+                    auto.setEnabled(true);
+                    auto.setText("自动检测");
+                    if (!snapshot.equals(site.template)) {
+                        state.setText("网址已修改，请重新开始验证");
+                        return;
+                    }
+                    site.checkLevel = result.level;
+                    site.checkMessage = result.message
+                            + (result.httpCode > 0 ? " · HTTP " + result.httpCode : "")
+                            + " · " + result.durationMs + "ms";
+                    site.checkedAt = System.currentTimeMillis();
+                    if (result.level == SiteVerifier.CONFIRMED) site.guessed = false;
+                    state.setTextColor(result.level == SiteVerifier.CONFIRMED
+                            ? GREEN : result.level == SiteVerifier.FAILED ? RED : MUTED);
+                    state.setText("网络检测：" + site.checkMessage);
+                    callback.onUpdated();
+                });
+            }, "site-auto-verifier").start();
+        });
+
+        confirmed.setOnClickListener(v -> {
+            if (!loaded[0] || mainError[0]) {
+                Toast.makeText(activity, "请先等待网页成功加载，再检查搜索结果", Toast.LENGTH_LONG).show();
+                return;
+            }
+            new AlertDialog.Builder(activity)
+                    .setTitle("确认书名搜索可用？")
+                    .setMessage("你是否已经在网页中看到与测试书名有关的书籍搜索结果？"
+                            + "\n\n仅能打开网站首页，不代表搜索接口正确。")
+                    .setNegativeButton("继续查看", null)
+                    .setPositiveButton("已看到结果", (d,w) -> {
+                        site.checkLevel = SiteVerifier.CONFIRMED;
+                        site.checkMessage = "已在浏览器中人工确认书籍搜索结果";
+                        site.checkedAt = System.currentTimeMillis();
+                        site.guessed = false;
+                        callback.onUpdated();
+                        Toast.makeText(activity, "已记录结果，请返回网站管理保存", Toast.LENGTH_LONG).show();
+                        dialog.dismiss();
+                    }).show();
+        });
+
+        invalid.setOnClickListener(v -> new AlertDialog.Builder(activity)
+                .setTitle("标记网站不可用？")
+                .setMessage("将这个网站标记为不可用，便于你返回网站管理界面编辑搜索网址。"
+                        + "\n此操作不会自动取消网站的勾选。")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("标记", (d,w) -> {
+                    site.checkLevel = SiteVerifier.FAILED;
+                    site.checkMessage = "人工检查：网址无法正常完成搜索";
+                    site.checkedAt = System.currentTimeMillis();
+                    callback.onUpdated();
+                    Toast.makeText(activity, "已标记，请返回网站管理保存", Toast.LENGTH_LONG).show();
+                    dialog.dismiss();
+                }).show());
+
+        applyCurrent.setOnClickListener(v -> {
+            String current = web.getUrl();
+            if (!LinkResolver.webUrl(current)) {
+                Toast.makeText(activity, "网页地址无效", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            try {
+                SearchTemplate.Conversion suggested = SearchTemplate.convert(current);
+                String details = "当前网址：\n" + current
+                        + "\n\n建议保存为：\n" + suggested.template
+                        + "\n\n" + suggested.note
+                        + "\n\n若网站使用特殊的搜索路径，可返回网站管理的编辑功能手动修正。";
+                new AlertDialog.Builder(activity)
+                        .setTitle("更新站点搜索模板？")
+                        .setMessage(details)
+                        .setNegativeButton("取消", null)
+                        .setPositiveButton("采用此模板", (d, which) -> {
+                            site.template = suggested.template;
+                            site.guessed = suggested.guessed;
+                            site.checkLevel = 0;
+                            site.checkMessage = "搜索网址已更新，请重新验证";
+                            site.checkedAt = 0;
+                            callback.onUpdated();
+                            Toast.makeText(activity, "已更新网址，请返回网站管理保存", Toast.LENGTH_LONG).show();
+                            dialog.dismiss();
+                        }).show();
+            } catch (IllegalArgumentException e) {
+                Toast.makeText(activity, e.getMessage(), Toast.LENGTH_LONG).show();
+            }
+        });
+
+        dialog.setOnShowListener(d -> {
+            if (dialog.getWindow() != null) {
+                int height = activity.getResources().getDisplayMetrics().heightPixels;
+                int width = activity.getResources().getDisplayMetrics().widthPixels;
+                dialog.getWindow().setBackgroundDrawable(new ColorDrawable(BG));
+                dialog.getWindow().setLayout((int)(width * 0.97f), (int)(height * 0.90f));
+                dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+            }
+        });
+        dialog.setOnDismissListener(d -> {
+            web.stopLoading();
+            web.loadUrl("about:blank");
+            root.removeView(web);
+            web.destroy();
+        });
+        dialog.show();
+        web.loadUrl(testUrl);
+    }
+}

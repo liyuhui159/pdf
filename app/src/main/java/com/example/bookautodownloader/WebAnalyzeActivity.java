@@ -1,6 +1,7 @@
 package com.example.bookautodownloader;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.app.DownloadManager;
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -28,6 +29,9 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.widget.ImageView;
+import android.view.View;
+import android.view.inputmethod.EditorInfo;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -42,98 +46,208 @@ public class WebAnalyzeActivity extends Activity {
     private EditText urlInput;
     private WebView webView;
     private LinearLayout resultBox;
+    private ScrollView candidatePane;
+    private Button candidateToggle;
     private TextView logView;
     private final ArrayList<Item> items = new ArrayList<>();
     private final Handler handler = new Handler(Looper.getMainLooper());
     private boolean waitRunning = false;
     private int waitTicks = 0;
+    private String launchedCloudUrl = "";
 
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
         buildUi();
         setupWebView();
+        String keyword = getIntent().getStringExtra("keyword");
+        if (keyword != null && !keyword.trim().isEmpty()) keywordInput.setText(keyword);
+        String initialUrl = getIntent().getStringExtra("initial_url");
+        if (LinkResolver.webUrl(initialUrl)) {
+            urlInput.setText(initialUrl);
+            if (CloudLinkHandler.needsWebFlow(initialUrl)) {
+                launchedCloudUrl = initialUrl;
+                openCloudLogin(initialUrl);
+            } else {
+                webView.loadUrl(initialUrl);
+            }
+        }
     }
 
     @Override
     protected void onDestroy() {
         waitRunning = false;
         handler.removeCallbacksAndMessages(null);
+        if (webView != null) {
+            webView.stopLoading();
+            webView.destroy();
+            webView = null;
+        }
         super.onDestroy();
     }
 
     private void buildUi() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(Color.parseColor("#F4F7FB"));
-        root.setPadding(dp(10), dp(10), dp(10), dp(10));
+        root.setBackgroundColor(Color.parseColor("#F4F7FD"));
+        root.setPadding(dp(11), dp(9), dp(11), dp(8));
 
+        LinearLayout banner = new LinearLayout(this);
+        banner.setGravity(Gravity.CENTER_VERTICAL);
+        banner.setPadding(dp(12), dp(10), dp(12), dp(10));
+        GradientDrawable bannerBg = new GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                new int[]{Color.parseColor("#1454E0"), Color.parseColor("#129EEA")});
+        bannerBg.setCornerRadius(dp(15));
+        banner.setBackground(bannerBg);
+        ImageView logo = new ImageView(this);
+        logo.setImageResource(R.drawable.ic_book_search);
+        banner.addView(logo, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        LinearLayout info = new LinearLayout(this);
+        info.setOrientation(LinearLayout.VERTICAL);
+        info.setPadding(dp(10), 0, 0, 0);
         TextView title = new TextView(this);
-        title.setText("网页登录分析下载链接");
-        title.setTextSize(21);
+        title.setText("网页下载分析");
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setGravity(Gravity.CENTER);
-        title.setTextColor(Color.parseColor("#1F2A44"));
-        root.addView(title, new LinearLayout.LayoutParams(-1, -2));
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(19);
+        info.addView(title);
+        TextView subtitle = new TextView(this);
+        subtitle.setText("浏览网页、登录后识别真实文件链接");
+        subtitle.setTextSize(11);
+        subtitle.setTextColor(Color.parseColor("#E2F0FF"));
+        info.addView(subtitle);
+        banner.addView(info);
+        LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(-1, -2);
+        bp.setMargins(0, 0, 0, dp(10));
+        root.addView(banner, bp);
 
-        TextView tip = new TextView(this);
-        tip.setText("先手动登录/搜索/进入详情页，再点“分析当前页链接”。遇到60秒慢速下载页，可用“等待并点下载”，它只等待网页按钮变可点，不绕过验证码或限制。");
-        tip.setTextSize(12);
-        tip.setTextColor(Color.parseColor("#5B6475"));
-        tip.setPadding(0, dp(6), 0, dp(6));
-        root.addView(tip);
+        keywordInput = input("书名 / 关键词", 1);
+        keywordInput.setSingleLine(true);
+        keywordInput.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
+        LinearLayout.LayoutParams kp = new LinearLayout.LayoutParams(-1, dp(44));
+        kp.setMargins(0, 0, 0, dp(6));
+        root.addView(keywordInput, kp);
 
-        keywordInput = input("书名 / 资料名，可读取剪贴板", 1);
-        root.addView(keywordInput, new LinearLayout.LayoutParams(-1, -2));
+        urlInput = input("输入网页地址或包含 {keyword} 的搜索网址", 1);
+        urlInput.setSingleLine(true);
+        urlInput.setImeOptions(EditorInfo.IME_ACTION_GO);
+        urlInput.setText("https://www.gutenberg.org/ebooks/search/?query={keyword}");
+        urlInput.setOnEditorActionListener((v, actionId, event) -> {
+            if (actionId == EditorInfo.IME_ACTION_GO) {
+                openUrl();
+                return true;
+            }
+            return false;
+        });
+        root.addView(urlInput, new LinearLayout.LayoutParams(-1, dp(45)));
 
-        urlInput = input("搜索网址，可含 {keyword}，例如：https://example.com/search?q={keyword}", 2);
-        urlInput.setText("https://example.com/search?q={keyword}");
-        root.addView(urlInput, new LinearLayout.LayoutParams(-1, -2));
-
-        LinearLayout row1 = new LinearLayout(this);
-        row1.setOrientation(LinearLayout.HORIZONTAL);
-        row1.setPadding(0, dp(6), 0, dp(4));
-        root.addView(row1);
-        Button clip = button("读剪贴板", true);
-        clip.setOnClickListener(v -> readClipboard());
-        row1.addView(clip, weight());
-        Button open = button("打开/搜索", true);
+        LinearLayout actions = new LinearLayout(this);
+        actions.setPadding(0, dp(7), 0, dp(4));
+        root.addView(actions);
+        Button open = button("打开 / 搜索", true);
         open.setOnClickListener(v -> openUrl());
-        row1.addView(open, weight());
-        Button analyze = button("分析当前页链接", true);
-        analyze.setOnClickListener(v -> analyzePage());
-        row1.addView(analyze, weight());
+        actions.addView(open, weight());
+        Button analyze = button("识别当前页", false);
+        analyze.setOnClickListener(v -> {
+            candidatePane.setVisibility(View.VISIBLE);
+            candidateToggle.setText("已识别链接  ▴");
+            analyzePage();
+        });
+        actions.addView(analyze, weight());
+        Button nativeSearch = button("站内搜索", false);
+        nativeSearch.setOnClickListener(v -> searchNativeForm());
+        actions.addView(nativeSearch, weight());
 
-        LinearLayout row2 = new LinearLayout(this);
-        row2.setOrientation(LinearLayout.HORIZONTAL);
-        row2.setPadding(0, dp(2), 0, dp(6));
-        root.addView(row2);
-        Button waitBtn = button("等待并点下载", true);
-        waitBtn.setOnClickListener(v -> startWaitDownload());
-        row2.addView(waitBtn, weight());
-        Button stopBtn = button("停止等待", false);
-        stopBtn.setOnClickListener(v -> stopWaitDownload());
-        row2.addView(stopBtn, weight());
-        Button backBtn = button("网页返回", false);
-        backBtn.setOnClickListener(v -> { if (webView.canGoBack()) webView.goBack(); });
-        row2.addView(backBtn, weight());
+        LinearLayout navigation = new LinearLayout(this);
+        navigation.setPadding(0, dp(3), 0, dp(7));
+        root.addView(navigation);
+        Button backBtn = button("← 后退", false);
+        backBtn.setOnClickListener(v -> {
+            if (webView != null && webView.canGoBack()) webView.goBack();
+        });
+        navigation.addView(backBtn, weight());
+        Button nextBtn = button("前进 →", false);
+        nextBtn.setOnClickListener(v -> {
+            if (webView != null && webView.canGoForward()) webView.goForward();
+        });
+        navigation.addView(nextBtn, weight());
+        Button refresh = button("刷新", false);
+        refresh.setOnClickListener(v -> {
+            if (webView != null) webView.reload();
+        });
+        navigation.addView(refresh, weight());
 
         webView = new WebView(this);
+        webView.setBackgroundColor(Color.WHITE);
         LinearLayout.LayoutParams wlp = new LinearLayout.LayoutParams(-1, 0, 1.0f);
         root.addView(webView, wlp);
 
-        ScrollView rs = new ScrollView(this);
+        candidateToggle = button("查看识别链接  ▾", false);
+        candidateToggle.setOnClickListener(v -> {
+            boolean show = candidatePane.getVisibility() != View.VISIBLE;
+            candidatePane.setVisibility(show ? View.VISIBLE : View.GONE);
+            candidateToggle.setText(show ? "收起识别链接  ▴" : "查看识别链接  ▾");
+            if (show) analyzePage();
+        });
+        LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(-1, dp(38));
+        tp.setMargins(0, dp(7), 0, dp(3));
+        root.addView(candidateToggle, tp);
+
+        candidatePane = new ScrollView(this);
+        candidatePane.setBackgroundColor(Color.WHITE);
+        candidatePane.setVisibility(View.GONE);
         resultBox = new LinearLayout(this);
         resultBox.setOrientation(LinearLayout.VERTICAL);
-        rs.addView(resultBox);
-        root.addView(rs, new LinearLayout.LayoutParams(-1, dp(235)));
+        resultBox.setPadding(dp(5), dp(7), dp(5), dp(7));
+        candidatePane.addView(resultBox);
+        root.addView(candidatePane, new LinearLayout.LayoutParams(-1, dp(195)));
+
+        LinearLayout tools = new LinearLayout(this);
+        tools.setPadding(0, dp(4), 0, dp(3));
+        root.addView(tools);
+        Button waitBtn = button("等待可用下载按钮", false);
+        waitBtn.setOnClickListener(v -> startWaitDownload());
+        tools.addView(waitBtn, weight());
+        Button stopBtn = button("停止等待", false);
+        stopBtn.setOnClickListener(v -> stopWaitDownload());
+        tools.addView(stopBtn, weight());
 
         logView = new TextView(this);
-        logView.setTextSize(11);
-        logView.setTextColor(Color.parseColor("#39445A"));
-        root.addView(logView, new LinearLayout.LayoutParams(-1, -2));
+        logView.setTextSize(10);
+        logView.setMaxLines(2);
+        logView.setTextColor(Color.parseColor("#697A97"));
+        logView.setPadding(dp(3), dp(5), dp(3), dp(5));
+        logView.setText("状态：输入网页地址开始，或在搜索结果中点击“网页查看”。");
+        logView.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("网页分析日志").setMessage(logView.getText().toString())
+                .setPositiveButton("确定", null).show());
+        root.addView(logView, new LinearLayout.LayoutParams(-1, dp(38)));
 
+        LinearLayout bottom = new LinearLayout(this);
+        root.addView(bottom, new LinearLayout.LayoutParams(-1, dp(44)));
+        Button home = button("⌕ 搜索", false);
+        home.setOnClickListener(v -> returnToMain(false));
+        bottom.addView(home, weight());
+        Button sites = button("▤ 网站", false);
+        sites.setOnClickListener(v -> returnToMain(true));
+        bottom.addView(sites, weight());
+        Button downloads = button("↓ 下载", false);
+        downloads.setOnClickListener(v ->
+                startActivity(new Intent(this, DownloadManagerActivity.class)));
+        bottom.addView(downloads, weight());
+        Button current = button("◉ 网页", true);
+        current.setEnabled(false);
+        bottom.addView(current, weight());
         setContentView(root);
+    }
+
+    private void returnToMain(boolean sources) {
+        Intent target = new Intent(this, MainActivity.class);
+        target.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        if (sources) target.putExtra("open_sources", true);
+        startActivity(target);
+        finish();
     }
 
     private void setupWebView() {
@@ -147,7 +261,33 @@ public class WebAnalyzeActivity extends Activity {
         s.setDisplayZoomControls(false);
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
-        webView.setWebViewClient(new WebViewClient());
+        webView.setWebViewClient(new WebViewClient() {
+            @Override public boolean shouldOverrideUrlLoading(WebView view, android.webkit.WebResourceRequest request) {
+                String target = request == null || request.getUrl() == null
+                        ? "" : request.getUrl().toString();
+                if (request != null && request.isForMainFrame() && CloudLinkHandler.isCloud(target)) {
+                    openCloudLogin(target);
+                    return true;
+                }
+                return false;
+            }
+            @Override public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                if (CloudLinkHandler.isCloud(url)) {
+                    openCloudLogin(url);
+                    return true;
+                }
+                return false;
+            }
+            @Override public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                CookieManager.getInstance().flush();
+                if (LinkResolver.webUrl(url)) urlInput.setText(url);
+                // Analyze the rendered DOM (including JavaScript-created anchors).
+                handler.postDelayed(() -> {
+                    if (!isFinishing() && webView != null) analyzePage();
+                }, 700);
+            }
+        });
         webView.setDownloadListener(new DownloadListener() {
             @Override public void onDownloadStart(String url, String userAgent, String contentDisposition, String mimetype, long contentLength) {
                 String name = URLUtil.guessFileName(url, contentDisposition, mimetype);
@@ -160,12 +300,13 @@ public class WebAnalyzeActivity extends Activity {
         EditText e = new EditText(this);
         e.setHint(hint);
         e.setMinLines(lines);
-        e.setTextSize(15);
-        e.setPadding(dp(9), dp(7), dp(9), dp(7));
+        e.setTextSize(13);
+        e.setTextColor(Color.parseColor("#1E2D4B"));
+        e.setPadding(dp(12), dp(8), dp(12), dp(8));
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(Color.WHITE);
-        bg.setCornerRadius(dp(8));
-        bg.setStroke(dp(1), Color.parseColor("#D8E0EC"));
+        bg.setCornerRadius(dp(11));
+        bg.setStroke(dp(1), Color.parseColor("#DCE6F5"));
         e.setBackground(bg);
         return e;
     }
@@ -175,22 +316,48 @@ public class WebAnalyzeActivity extends Activity {
         b.setText(text);
         b.setTextSize(12);
         b.setAllCaps(false);
-        b.setTextColor(primary ? Color.WHITE : Color.parseColor("#2F6BFF"));
+        b.setMinHeight(0);
+        b.setMinimumHeight(0);
+        b.setPadding(dp(4), 0, dp(4), 0);
+        b.setTextColor(primary ? Color.WHITE : Color.parseColor("#2869F3"));
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(primary ? Color.parseColor("#2F6BFF") : Color.parseColor("#EEF3FF"));
-        bg.setCornerRadius(dp(8));
-        bg.setStroke(dp(1), primary ? Color.parseColor("#2F6BFF") : Color.parseColor("#C9D8FF"));
+        bg.setColor(primary ? Color.parseColor("#2869F3") : Color.parseColor("#E2ECFF"));
+        bg.setCornerRadius(dp(10));
+        bg.setStroke(dp(1), primary
+                ? Color.parseColor("#2869F3") : Color.parseColor("#DCE6F5"));
         b.setBackground(bg);
         return b;
     }
 
     private LinearLayout.LayoutParams weight() {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1);
-        lp.setMargins(dp(2), 0, dp(2), 0);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(39), 1);
+        lp.setMargins(dp(3), 0, dp(3), 0);
         return lp;
     }
 
     private int dp(int v) { return (int)(v * getResources().getDisplayMetrics().density + 0.5f); }
+
+    private void searchNativeForm() {
+        String keyword = keywordInput.getText().toString().trim();
+        if (keyword.isEmpty()) {
+            toast("请先填写书名");
+            return;
+        }
+        if (webView == null || !LinkResolver.webUrl(webView.getUrl())) {
+            toast("请先打开要搜索的网站");
+            return;
+        }
+        log("正在通过网站自己的搜索框检索：" + keyword);
+        webView.evaluateJavascript(NativeSiteSearch.script(keyword), raw -> {
+            if (raw != null && raw.contains("no-search-field"))
+                log("当前页面没有可识别搜索框，请点网站上的搜索按钮");
+            else if (raw != null && raw.contains("filled-no-submit"))
+                log("已输入书名，需要手动点击网站的搜索按钮");
+            else if (raw != null && raw.contains("error:"))
+                log("站内搜索提交遇到问题，请尝试网页手动搜索");
+            else log("已提交网页原生搜索框，请检查页面结果");
+        });
+    }
 
     private void readClipboard() {
         ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
@@ -258,8 +425,8 @@ public class WebAnalyzeActivity extends Activity {
                 "var sec=m?m[1]:'';" +
                 "var nodes=[].slice.call(document.querySelectorAll('a,button,input[type=button],input[type=submit]'));" +
                 "for(var i=0;i<nodes.length;i++){var e=nodes[i];var t=c(e.innerText||e.textContent||e.value||e.title||e.getAttribute('aria-label')||'');var u=e.href||e.getAttribute('href')||'';var all=(t+' '+u).toLowerCase();" +
-                "if(!visible(e)||e.disabled||e.getAttribute('disabled')!==null)continue;" +
-                "if(all.indexOf('captcha')>=0||all.indexOf('验证码')>=0)continue;" +
+                "if(!visible(e)||e.disabled||e.getAttribute('disabled')!==null||e.getAttribute('aria-disabled')==='true'||(e.className&&String(e.className).indexOf('disabled')>=0))continue;" +
+                "if(all.indexOf('captcha')>=0||all.indexOf('验证码')>=0||(+sec>0))continue;" +
                 "if(all.indexOf('download')>=0||all.indexOf('下载')>=0||all.indexOf('slow')>=0||all.indexOf('free')>=0||all.indexOf('.pdf')>=0||all.indexOf('.epub')>=0){e.click();return JSON.stringify({clicked:true,text:t,url:u,sec:sec});}" +
                 "}" +
                 "return JSON.stringify({clicked:false,sec:sec});" +
@@ -287,11 +454,11 @@ public class WebAnalyzeActivity extends Activity {
     }
 
     private String unwrapJsonString(String value) {
-        String json = value == null ? "" : value;
-        if (json.length() >= 2 && json.startsWith("\"") && json.endsWith("\"")) {
-            json = json.substring(1, json.length() - 1).replace("\\\"", "\"").replace("\\\\", "\\");
-        }
-        return json;
+        if (value == null || "null".equals(value)) return "";
+        try {
+            if (value.startsWith("\"")) return new JSONArray("[" + value + "]").getString(0);
+        } catch (Exception ignored) {}
+        return value;
     }
 
     private void analyzePage() {
@@ -308,8 +475,8 @@ public class WebAnalyzeActivity extends Activity {
                 "n=a; var best=''; for(var j=0;n&&j<5;j++,n=n.parentElement){var tx=goodText(n.innerText||n.textContent); if(tx.length>best.length)best=tx;}" +
                 "return best;" +
                 "}" +
-                "var arr=[].slice.call(document.querySelectorAll('a'));" +
-                "return JSON.stringify(arr.map(function(a){return {t:titleOf(a),lt:clean(a.innerText||a.textContent||a.title||''),u:a.href||'',cls:a.className||''};}).filter(function(x){return x.u;}));" +
+                "var arr=[].slice.call(document.querySelectorAll('a[href],[data-href],[data-url],iframe[src],embed[src]'));" +
+                "return JSON.stringify(arr.map(function(a){var raw=a.href||a.getAttribute('data-href')||a.getAttribute('data-url')||a.src||'';var u='';try{u=new URL(raw,document.baseURI).href;}catch(e){}return {t:titleOf(a),lt:clean(a.innerText||a.textContent||a.title||''),u:u,cls:String(a.className||'')};}).filter(function(x){return /^https?:\\/\\//.test(x.u);}));" +
                 "})()";
         webView.evaluateJavascript(js, new ValueCallback<String>() {
             @Override public void onReceiveValue(String value) { parseJsResult(value); }
@@ -328,7 +495,7 @@ public class WebAnalyzeActivity extends Activity {
                 String title = o.optString("t", "");
                 String linkText = o.optString("lt", "");
                 String url = o.optString("u", "");
-                if (url.length() == 0 || seen.contains(url)) continue;
+                if (!LinkResolver.webUrl(url) || seen.contains(url)) continue;
                 if (!isCandidate(title, linkText, url)) continue;
                 seen.add(url);
                 String displayTitle = pickTitle(title, linkText, url);
@@ -397,11 +564,18 @@ public class WebAnalyzeActivity extends Activity {
             LinearLayout row1 = new LinearLayout(this);
             row1.setOrientation(LinearLayout.HORIZONTAL);
             row1.setPadding(0, dp(6), 0, 0);
-            Button down = button(isDirectFile(it.url) ? "直接下载" : "尝试下载", true);
-            down.setOnClickListener(v -> downloadWithCookies(it.url, safeName(it.title), null, webView.getSettings().getUserAgentString()));
+            Button down = button("解析并下载", true);
+            down.setOnClickListener(v -> {
+                if (CloudLinkHandler.needsWebFlow(it.url)) openCloudLogin(it.url);
+                else downloadWithCookies(it.url, safeName(it.title), null,
+                        webView.getSettings().getUserAgentString());
+            });
             row1.addView(down, weight());
             Button openIn = button("网页打开", false);
-            openIn.setOnClickListener(v -> webView.loadUrl(it.url));
+            openIn.setOnClickListener(v -> {
+                if (CloudLinkHandler.isCloud(it.url)) openCloudLogin(it.url);
+                else webView.loadUrl(it.url);
+            });
             row1.addView(openIn, weight());
             card.addView(row1);
 
@@ -428,27 +602,51 @@ public class WebAnalyzeActivity extends Activity {
         toast("已复制链接");
     }
 
+    private void openCloudLogin(String url) {
+        if (!LinkResolver.webUrl(url)) return;
+        log("需要云盘授权或选择下载渠道：" + CloudLinkHandler.service(url));
+        Intent intent = new Intent(this, CloudLoginActivity.class);
+        intent.putExtra(CloudLoginActivity.EXTRA_URL, url);
+        intent.putExtra(CloudLoginActivity.EXTRA_KEYWORD,
+                keywordInput.getText().toString().trim());
+        startActivity(intent);
+    }
+
     private void downloadWithCookies(String url, String fileName, String mimetype, String userAgent) {
-        try {
-            DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
-            DownloadManager.Request req = new DownloadManager.Request(Uri.parse(url));
-            req.setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI | DownloadManager.Request.NETWORK_MOBILE);
-            req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-            String cookies = CookieManager.getInstance().getCookie(url);
-            if (cookies != null) req.addRequestHeader("Cookie", cookies);
-            if (userAgent != null) req.addRequestHeader("User-Agent", userAgent);
-            String safe = safeName(fileName);
-            req.setTitle(safe);
-            req.setDescription("书名自动检索下载助手");
-            if (mimetype != null) req.setMimeType(mimetype);
-            req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, safe);
-            dm.enqueue(req);
-            toast("已交给系统下载器；若无进度，请用“网页打开/浏览器打开”");
-            log("下载尝试：" + url);
-        } catch (Exception e) {
-            toast("下载失败：" + e.getMessage());
-            log("下载失败：" + e.getMessage());
+        if (CloudLinkHandler.needsWebFlow(url)) {
+            openCloudLogin(url);
+            return;
         }
+        if (!LinkResolver.webUrl(url)) {
+            log("无法由系统下载器处理该地址：" + url
+                    + "。blob:/data: 等临时链接需要网站自身的下载按钮处理");
+            toast("该链接不是普通 HTTP 文件地址");
+            return;
+        }
+        String referer = webView.getUrl();
+        String keyword = keywordInput.getText().toString().trim();
+        log("开始解析真实文件链接：" + url);
+        new Thread(() -> {
+            LinkResolver.FileLink file = LinkResolver.resolve(url, referer, keyword, userAgent,
+                    target -> CookieManager.getInstance().getCookie(target),
+                    msg -> runOnUiThread(() -> log(msg)));
+            runOnUiThread(() -> {
+                if (file == null) {
+                    log("未发现文件直链。请在网页内手动进入详情页或点击已解锁的下载按钮，再次分析");
+                    toast("未获得真实下载地址");
+                    return;
+                }
+                try {
+                    long id = DownloadJobs.enqueue(this, file, userAgent);
+                    log("已确认文件：" + file.name + "，下载任务：" + id);
+                    toast("已提交系统下载器，正在监测");
+                    DownloadJobs.watch(this, id, this::log);
+                } catch (Exception e) {
+                    log("下载提交失败：" + e.getMessage());
+                    toast("下载提交失败：" + e.getMessage());
+                }
+            });
+        }).start();
     }
 
     private String guessName(String url) {
