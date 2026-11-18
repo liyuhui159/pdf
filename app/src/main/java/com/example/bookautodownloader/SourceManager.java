@@ -196,7 +196,7 @@ public final class SourceManager {
     }
 
     private static Button action(Context c, String value, int kind) {
-        // kind: 0 = blue filled, 1 = neutral outlined, 2 = subtle danger
+        // Semantic solid-filled surfaces: blue action / soft-blue secondary / coral danger
         Button b = new Button(c);
         b.setText(value);
         b.setTextSize(13);
@@ -207,8 +207,8 @@ public final class SourceManager {
         b.setPadding(dp(c, 7), 0, dp(c, 7), 0);
         b.setTextColor(kind == 0 ? Color.WHITE : kind == 2 ? RED : BLUE);
         b.setBackground(background(c,
-                kind == 0 ? BLUE : kind == 2 ? Color.rgb(255, 247, 247) : Color.WHITE,
-                kind == 0 ? BLUE : kind == 2 ? Color.rgb(245, 220, 220) : BORDER, 10));
+                kind == 0 ? BLUE : kind == 2 ? Color.rgb(255, 227, 226) : Color.rgb(220, 234, 255),
+                kind == 0 ? BLUE : kind == 2 ? Color.rgb(245, 201, 200) : Color.rgb(207, 223, 250), 10));
         return b;
     }
 
