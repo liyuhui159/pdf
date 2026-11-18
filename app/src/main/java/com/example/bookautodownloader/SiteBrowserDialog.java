@@ -16,6 +16,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.text.InputType;
 import android.view.Gravity;
+import android.view.Window;
 import android.view.View;
 import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
@@ -299,6 +300,7 @@ public final class SiteBrowserDialog {
         // A full-height Dialog gives the weighted WebView an exact viewport;
         // AlertDialog's wrap-content custom panel can collapse the WebView on phones.
         Dialog dialog = new Dialog(activity);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         dialog.setContentView(root);
         close.setOnClickListener(v -> dialog.dismiss());
 
