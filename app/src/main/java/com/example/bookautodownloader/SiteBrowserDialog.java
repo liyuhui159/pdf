@@ -88,7 +88,8 @@ public final class SiteBrowserDialog {
         b.setMinimumHeight(0);
         b.setPadding(dp(c, 3), 0, dp(c, 3), 0);
         b.setTextColor(filled ? Color.WHITE : BLUE);
-        b.setBackground(bg(c, filled ? BLUE : Color.WHITE, filled ? BLUE : BORDER, 10));
+        b.setBackground(bg(c, filled ? BLUE : Color.rgb(220, 234, 255),
+                filled ? BLUE : Color.rgb(209, 225, 251), 10));
         return b;
     }
 
@@ -220,6 +221,11 @@ public final class SiteBrowserDialog {
         decisions.addView(auto, flex(activity, 1.0f, 43));
         decisions.addView(confirmed, flex(activity, 1.45f, 43));
         decisions.addView(invalid, flex(activity, 1.1f, 43));
+        invalid.setTextColor(RED);
+        invalid.setBackground(bg(activity, Color.rgb(255, 227, 226),
+                Color.rgb(246, 206, 207), 10));
+        auto.setBackground(bg(activity, Color.rgb(214, 239, 247),
+                Color.rgb(190, 224, 238), 10));
         Button applyCurrent = button(activity, "使用当前搜索网址更新网站模板", false);
         LinearLayout.LayoutParams applyLp = new LinearLayout.LayoutParams(-1, dp(activity, 35));
         applyLp.setMargins(dp(activity, 3), dp(activity, 4), dp(activity, 3), 0);
