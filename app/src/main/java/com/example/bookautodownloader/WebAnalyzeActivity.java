@@ -298,7 +298,7 @@ public class WebAnalyzeActivity extends Activity {
         b.setPadding(dp(4), 0, dp(4), 0);
         b.setTextColor(primary ? Color.WHITE : Color.parseColor("#2869F3"));
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(primary ? Color.parseColor("#2869F3") : Color.WHITE);
+        bg.setColor(primary ? Color.parseColor("#2869F3") : Color.parseColor("#E2ECFF"));
         bg.setCornerRadius(dp(10));
         bg.setStroke(dp(1), primary
                 ? Color.parseColor("#2869F3") : Color.parseColor("#DCE6F5"));
