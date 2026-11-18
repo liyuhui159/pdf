@@ -167,7 +167,7 @@ public final class CloudLoginActivity extends Activity {
         actions.addView(saveSession, flex(1, 40));
         Button external = button("官方应用", false);
         external.setOnClickListener(v -> openExternal());
-        actions.addView(external, flex(0.85f == 0 ? 1 : 1, 40));
+        actions.addView(external, flex(1, 40));
 
         LinearLayout toolbar = row();
         LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(-1, dp(39));
