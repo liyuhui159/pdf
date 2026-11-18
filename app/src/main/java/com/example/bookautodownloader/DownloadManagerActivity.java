@@ -100,7 +100,8 @@ public class DownloadManagerActivity extends Activity {
         b.setPadding(dp(9), 0, dp(9), 0);
         b.setMinHeight(0);
         b.setMinimumHeight(0);
-        b.setBackground(shape(primary ? BLUE : Color.WHITE, primary ? 0 : OUTLINE, 11));
+        b.setBackground(shape(primary ? BLUE : Color.rgb(222, 235, 255),
+                primary ? 0 : Color.rgb(207, 223, 248), 11));
         return b;
     }
 
