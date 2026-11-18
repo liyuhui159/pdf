@@ -170,19 +170,38 @@ public class DownloadManagerActivity extends Activity {
         scroll.addView(results);
         root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
 
+        // Consistent four-destination navigation shared with the search page.
         LinearLayout footer = new LinearLayout(this);
-        footer.setPadding(dp(12), dp(9), dp(12), dp(10));
+        footer.setGravity(Gravity.CENTER_VERTICAL);
+        footer.setPadding(dp(10), dp(7), dp(10), dp(9));
         footer.setBackground(shape(Color.WHITE, OUTLINE, 0));
-        Button back = button("⌕  返回搜索", false);
+        Button back = button("⌕ 搜索", false);
         back.setOnClickListener(v -> finish());
-        Button current = button("↓  下载管理", true);
+        footer.addView(back, navParams());
+        Button sites = button("▤ 网站", false);
+        sites.setOnClickListener(v -> {
+            Intent target = new Intent(this, MainActivity.class);
+            target.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            target.putExtra("open_sources", true);
+            startActivity(target);
+            finish();
+        });
+        footer.addView(sites, navParams());
+        Button current = button("↓ 下载", true);
         current.setEnabled(false);
-        footer.addView(back, new LinearLayout.LayoutParams(0, dp(49), 1));
-        LinearLayout.LayoutParams second = new LinearLayout.LayoutParams(0, dp(49), 1);
-        second.setMargins(dp(8), 0, 0, 0);
-        footer.addView(current, second);
+        footer.addView(current, navParams());
+        Button browser = button("◉ 网页", false);
+        browser.setOnClickListener(v ->
+                startActivity(new Intent(this, WebAnalyzeActivity.class)));
+        footer.addView(browser, navParams());
         root.addView(footer);
         setContentView(root);
+    }
+
+    private LinearLayout.LayoutParams navParams() {
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(44), 1);
+        p.setMargins(dp(3), 0, dp(3), 0);
+        return p;
     }
 
     private void renderTabs() {
