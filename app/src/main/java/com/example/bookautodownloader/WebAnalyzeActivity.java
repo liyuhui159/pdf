@@ -53,6 +53,7 @@ public class WebAnalyzeActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private boolean waitRunning = false;
     private int waitTicks = 0;
+    private String launchedCloudUrl = "";
 
     @Override
     protected void onCreate(Bundle b) {
@@ -64,7 +65,12 @@ public class WebAnalyzeActivity extends Activity {
         String initialUrl = getIntent().getStringExtra("initial_url");
         if (LinkResolver.webUrl(initialUrl)) {
             urlInput.setText(initialUrl);
-            webView.loadUrl(initialUrl);
+            if (CloudLinkHandler.needsWebFlow(initialUrl)) {
+                launchedCloudUrl = initialUrl;
+                openCloudLogin(initialUrl);
+            } else {
+                webView.loadUrl(initialUrl);
+            }
         }
     }
 
@@ -258,6 +264,7 @@ public class WebAnalyzeActivity extends Activity {
         webView.setWebViewClient(new WebViewClient() {
             @Override public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
+                CookieManager.getInstance().flush();
                 if (LinkResolver.webUrl(url)) urlInput.setText(url);
                 // Analyze the rendered DOM (including JavaScript-created anchors).
                 handler.postDelayed(() -> {
@@ -542,10 +549,17 @@ public class WebAnalyzeActivity extends Activity {
             row1.setOrientation(LinearLayout.HORIZONTAL);
             row1.setPadding(0, dp(6), 0, 0);
             Button down = button("解析并下载", true);
-            down.setOnClickListener(v -> downloadWithCookies(it.url, safeName(it.title), null, webView.getSettings().getUserAgentString()));
+            down.setOnClickListener(v -> {
+                if (CloudLinkHandler.needsWebFlow(it.url)) openCloudLogin(it.url);
+                else downloadWithCookies(it.url, safeName(it.title), null,
+                        webView.getSettings().getUserAgentString());
+            });
             row1.addView(down, weight());
             Button openIn = button("网页打开", false);
-            openIn.setOnClickListener(v -> webView.loadUrl(it.url));
+            openIn.setOnClickListener(v -> {
+                if (CloudLinkHandler.isCloud(it.url)) openCloudLogin(it.url);
+                else webView.loadUrl(it.url);
+            });
             row1.addView(openIn, weight());
             card.addView(row1);
 
@@ -572,7 +586,21 @@ public class WebAnalyzeActivity extends Activity {
         toast("已复制链接");
     }
 
+    private void openCloudLogin(String url) {
+        if (!LinkResolver.webUrl(url)) return;
+        log("需要云盘授权或选择下载渠道：" + CloudLinkHandler.service(url));
+        Intent intent = new Intent(this, CloudLoginActivity.class);
+        intent.putExtra(CloudLoginActivity.EXTRA_URL, url);
+        intent.putExtra(CloudLoginActivity.EXTRA_KEYWORD,
+                keywordInput.getText().toString().trim());
+        startActivity(intent);
+    }
+
     private void downloadWithCookies(String url, String fileName, String mimetype, String userAgent) {
+        if (CloudLinkHandler.needsWebFlow(url)) {
+            openCloudLogin(url);
+            return;
+        }
         if (!LinkResolver.webUrl(url)) {
             log("无法由系统下载器处理该地址：" + url
                     + "。blob:/data: 等临时链接需要网站自身的下载按钮处理");
