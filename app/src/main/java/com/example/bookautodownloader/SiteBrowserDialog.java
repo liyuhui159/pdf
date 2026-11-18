@@ -105,6 +105,10 @@ public final class SiteBrowserDialog {
         return p;
     }
 
+    private static boolean dialogIsActive(WebView view) {
+        return view != null && view.getParent() != null && view.getUrl() != null;
+    }
+
     public static void show(Activity activity, SourceManager.Site site,
                             String keyword, Updated callback) {
         final String testUrl;
@@ -163,6 +167,18 @@ public final class SiteBrowserDialog {
         nav.addView(reload, flex(activity, 0.9f, 39));
         nav.addView(go, flex(activity, 1.25f, 39));
 
+        LinearLayout searchBar = horizontal(activity);
+        TextView searchLabel = text(activity, "当前书名：" + sample, 12, INK, true);
+        searchLabel.setSingleLine(true);
+        searchLabel.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        searchBar.addView(searchLabel, new LinearLayout.LayoutParams(0, -2, 1));
+        Button nativeSearch = button(activity, "站内搜索", true);
+        searchBar.addView(nativeSearch,
+                new LinearLayout.LayoutParams(dp(activity, 104), dp(activity, 42)));
+        LinearLayout.LayoutParams searchBarParams = new LinearLayout.LayoutParams(-1, dp(activity, 47));
+        searchBarParams.setMargins(dp(activity, 4), 0, dp(activity, 3), dp(activity, 4));
+        root.addView(searchBar, searchBarParams);
+
         ProgressBar progress = new ProgressBar(activity, null,
                 android.R.attr.progressBarStyleHorizontal);
         progress.setMax(100);
@@ -220,6 +236,32 @@ public final class SiteBrowserDialog {
 
         final boolean[] mainError = { false };
         final boolean[] loaded = { false };
+        final boolean[] nativeAutoStarted = { false };
+        nativeSearch.setOnClickListener(v -> {
+            String current = web.getUrl();
+            if (!LinkResolver.webUrl(current)) {
+                Toast.makeText(activity, "网页尚未准备好", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            state.setTextColor(BLUE);
+            state.setText("正在填写网站原生搜索框并提交：" + sample);
+            web.evaluateJavascript(NativeSiteSearch.script(sample), raw -> {
+                String result = raw == null ? "" : raw;
+                if (result.contains("no-search-field")) {
+                    state.setTextColor(RED);
+                    state.setText("当前页面没有可识别的搜索框，请点击网页内的搜索图标手动检索");
+                } else if (result.contains("filled-no-submit")) {
+                    state.setTextColor(MUTED);
+                    state.setText("已填写书名，请点击网站内的搜索按钮");
+                } else if (result.contains("error:")) {
+                    state.setTextColor(RED);
+                    state.setText("原生搜索提交失败，请直接点击网页搜索框");
+                } else {
+                    state.setTextColor(BLUE);
+                    state.setText("已提交网站自己的搜索框，检查结果列表");
+                }
+            });
+        });
         web.setWebViewClient(new WebViewClient() {
             @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 super.onPageStarted(view, url, favicon);
@@ -241,6 +283,14 @@ public final class SiteBrowserDialog {
                 progress.setProgress(100);
                 back.setEnabled(view.canGoBack());
                 next.setEnabled(view.canGoForward());
+                // The old ?q= URL loaded only Shuge's homepage. On first load
+                // also try the site's own visible search form exactly once.
+                if (ShugeCatalog.isShuge(site.template) && !nativeAutoStarted[0]) {
+                    nativeAutoStarted[0] = true;
+                    view.postDelayed(() -> {
+                        if (dialogIsActive(view)) nativeSearch.performClick();
+                    }, 950);
+                }
             }
 
             @Override public void onReceivedError(WebView view, WebResourceRequest req,
