@@ -368,15 +368,16 @@ public class MainActivity extends Activity {
     private LinearLayout card() {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(14), dp(14), dp(14), dp(14));
+        box.setPadding(dp(15), dp(15), dp(15), dp(15));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.setMargins(0, 0, 0, dp(12));
+        lp.setMargins(0, 0, 0, dp(11));
         box.setLayoutParams(lp);
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(Color.WHITE);
-        bg.setCornerRadius(dp(14));
-        bg.setStroke(dp(1), Color.parseColor("#E6ECF4"));
+        bg.setCornerRadius(dp(18));
+        bg.setStroke(dp(1), Color.parseColor("#E4EAF4"));
         box.setBackground(bg);
+        box.setElevation(dp(1));
         return box;
     }
 
@@ -385,8 +386,8 @@ public class MainActivity extends Activity {
         v.setText(s);
         v.setTextSize(16);
         v.setTypeface(Typeface.DEFAULT_BOLD);
-        v.setTextColor(Color.parseColor("#263248"));
-        v.setPadding(0, dp(4), 0, dp(6));
+        v.setTextColor(Color.parseColor("#203151"));
+        v.setPadding(0, 0, 0, dp(7));
         root.addView(v);
     }
 
@@ -394,14 +395,14 @@ public class MainActivity extends Activity {
         EditText e = new EditText(this);
         e.setHint(hint);
         e.setMinLines(lines);
-        e.setTextSize(16);
-        e.setPadding(dp(10), dp(8), dp(10), dp(8));
-        e.setTextColor(Color.parseColor("#151B2D"));
-        e.setHintTextColor(Color.parseColor("#9AA4B5"));
+        e.setTextSize(15);
+        e.setPadding(dp(13), dp(10), dp(13), dp(10));
+        e.setTextColor(Color.parseColor("#1C2B47"));
+        e.setHintTextColor(Color.parseColor("#9AA7BC"));
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(Color.parseColor("#F9FBFE"));
-        bg.setCornerRadius(dp(8));
-        bg.setStroke(dp(1), Color.parseColor("#D8E0EC"));
+        bg.setColor(Color.parseColor("#F7F9FE"));
+        bg.setCornerRadius(dp(12));
+        bg.setStroke(dp(1), Color.parseColor("#DBE5F5"));
         e.setBackground(bg);
         return e;
     }
@@ -409,11 +410,16 @@ public class MainActivity extends Activity {
     private Button primaryButton(String text) {
         Button b = new Button(this);
         b.setText(text);
+        b.setTextSize(14);
         b.setTextColor(Color.WHITE);
+        b.setTypeface(Typeface.DEFAULT_BOLD);
         b.setAllCaps(false);
+        b.setMinHeight(0);
+        b.setMinimumHeight(0);
+        b.setPadding(dp(9), 0, dp(9), 0);
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(Color.parseColor("#2F6BFF"));
-        bg.setCornerRadius(dp(10));
+        bg.setColor(Color.parseColor("#2869F3"));
+        bg.setCornerRadius(dp(11));
         b.setBackground(bg);
         return b;
     }
@@ -421,18 +427,22 @@ public class MainActivity extends Activity {
     private Button secondaryButton(String text) {
         Button b = new Button(this);
         b.setText(text);
-        b.setTextColor(Color.parseColor("#2F6BFF"));
+        b.setTextSize(13);
+        b.setTextColor(Color.parseColor("#2869F3"));
         b.setAllCaps(false);
+        b.setMinHeight(0);
+        b.setMinimumHeight(0);
+        b.setPadding(dp(7), 0, dp(7), 0);
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(Color.parseColor("#EEF3FF"));
-        bg.setCornerRadius(dp(10));
-        bg.setStroke(dp(1), Color.parseColor("#C9D8FF"));
+        bg.setColor(Color.WHITE);
+        bg.setCornerRadius(dp(11));
+        bg.setStroke(dp(1), Color.parseColor("#D7E3F6"));
         b.setBackground(bg);
         return b;
     }
 
     private LinearLayout.LayoutParams weight(int w) {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, w);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(43), w);
         lp.setMargins(dp(3), 0, dp(3), 0);
         return lp;
     }
@@ -528,43 +538,48 @@ public class MainActivity extends Activity {
     }
 
     private void searchAll(boolean priority) {
-        saveSettings();
-        resultBox.removeAllViews();
-        TextView running = new TextView(this);
-        running.setText(priority ? "正在按顺序优先搜索..." : "正在同时搜索全部资源站...");
-        running.setTextColor(Color.parseColor("#697386"));
-        resultBox.addView(running);
-
         String keyword = bookInput.getText().toString().trim();
         String exts = extInput.getText().toString().trim();
-        ArrayList<Source> sources = getTemplates(true);
+        ArrayList<Source> sources = getTemplates(false);
         if (keyword.length() == 0) {
-            toast("请先输入或读取书名");
+            toast("请先输入书名或搜索关键词");
+            bookInput.requestFocus();
             return;
         }
         if (sources.isEmpty()) {
-            toast("请先添加至少一个正确模板");
+            toast("请先在网站管理中勾选至少一个有效网站");
+            openSourceManager();
             return;
         }
-        log(priority ? "开始按顺序优先搜索，共 " + sources.size() + " 个模板" : "开始同时搜索，共 " + sources.size() + " 个模板");
+        saveSettings();
+        final int request = ++searchGeneration;
+        setSearchLoading(true, "检索 " + sources.size() + " 个网站中…");
+        resultBox.removeAllViews();
+        TextView loading = new TextView(this);
+        loading.setText(priority ? "正按顺序寻找匹配书籍…" : "正在多站并行检索，请查看检索结果…");
+        loading.setTextSize(13);
+        loading.setTextColor(Color.parseColor("#687995"));
+        loading.setPadding(dp(4), dp(20), dp(4), dp(20));
+        resultBox.addView(loading);
+        log(priority ? "开始顺序搜索 " + sources.size() + " 个站点"
+                : "开始并行搜索 " + sources.size() + " 个站点");
 
         new Thread(() -> {
             ArrayList<Result> all = new ArrayList<>();
             if (priority) {
                 for (Source src : sources) {
+                    if (request != searchGeneration) break;
                     try {
                         ArrayList<Result> part = searchOne(src, keyword, exts);
                         all.addAll(part);
                         if (!part.isEmpty()) {
-                            logSafe(src.name + " 已找到结果，停止后续模板");
+                            logSafe(src.name + " 已有候选结果，停止后续网站");
                             break;
                         }
                     } catch (Exception e) {
-                        logSafe(src.name + " 搜索失败：" + e.getMessage());
+                        logSafe(src.name + " 检索失败：" + e.getMessage());
                     }
                 }
-                Collections.sort(all, (a, b) -> b.score - a.score);
-                ui.post(() -> showResults(all));
             } else {
                 ArrayList<Result> sync = new ArrayList<>();
                 CountDownLatch latch = new CountDownLatch(sources.size());
@@ -574,18 +589,27 @@ public class MainActivity extends Activity {
                             ArrayList<Result> part = searchOne(src, keyword, exts);
                             synchronized (sync) { sync.addAll(part); }
                         } catch (Exception e) {
-                            logSafe(src.name + " 搜索失败：" + e.getMessage());
+                            logSafe(src.name + " 检索失败：" + e.getMessage());
                         } finally {
                             latch.countDown();
                         }
-                    }).start();
+                    }, "ebook-search-" + src.name).start();
                 }
-                try { latch.await(); } catch (InterruptedException ignored) {}
+                try {
+                    if (!latch.await(45, java.util.concurrent.TimeUnit.SECONDS))
+                        logSafe("部分站点响应较慢，已显示收到的结果");
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                }
                 synchronized (sync) { all.addAll(sync); }
-                Collections.sort(all, (a, b) -> b.score - a.score);
-                ui.post(() -> showResults(all));
             }
-        }).start();
+            Collections.sort(all, (a, b) -> b.score - a.score);
+            ui.post(() -> {
+                if (request != searchGeneration || isFinishing() || isDestroyed()) return;
+                setSearchLoading(false, "搜索完成");
+                showResults(all);
+            });
+        }, "ebook-search").start();
     }
 
     private ArrayList<Result> searchOne(Source source, String keyword, String exts) throws Exception {
@@ -742,58 +766,82 @@ public class MainActivity extends Activity {
 
     private void showResults(ArrayList<Result> results) {
         resultBox.removeAllViews();
-        log("最终候选链接：" + results.size() + " 个");
-        if (results.isEmpty()) {
-            TextView none = new TextView(this);
-            none.setText("没有找到可识别的下载链接。可以点“打开全部搜索页”手动处理，或使用顶部的网页登录分析器登录后分析当前页。");
-            none.setTextColor(Color.parseColor("#697386"));
-            resultBox.addView(none);
-            return;
-        }
-        int shown = 0;
         Set<String> seen = new HashSet<>();
         ArrayList<Result> unique = new ArrayList<>();
         for (Result r : results) if (seen.add(r.url)) unique.add(r);
+        if (searchStatus != null) searchStatus.setText(unique.isEmpty()
+                ? "暂无匹配" : "共 " + unique.size() + " 条");
+        log("最终候选链接：" + unique.size() + " 个");
+        if (unique.isEmpty()) {
+            TextView none = new TextView(this);
+            none.setText("没有检索到明显的书籍链接。\n可尝试不同的书名，或在“管理 / 验证”中用浏览器检查网站搜索页面。");
+            none.setTextSize(13);
+            none.setTextColor(Color.parseColor("#687995"));
+            none.setPadding(dp(3), dp(17), dp(3), dp(15));
+            resultBox.addView(none);
+            return;
+        }
+
+        int shown = 0;
         for (Result r : unique) {
-            if (shown++ >= 25) break;
-            LinearLayout card = new LinearLayout(this);
-            card.setOrientation(LinearLayout.VERTICAL);
-            card.setPadding(dp(10), dp(10), dp(10), dp(10));
-            LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(-1, -2);
-            clp.setMargins(0, 0, 0, dp(8));
-            card.setLayoutParams(clp);
+            if (shown++ >= 20) break;
+            LinearLayout box = new LinearLayout(this);
+            box.setOrientation(LinearLayout.VERTICAL);
+            box.setPadding(dp(12), dp(12), dp(12), dp(12));
             GradientDrawable bg = new GradientDrawable();
-            bg.setColor(Color.parseColor("#F9FBFE"));
-            bg.setCornerRadius(dp(10));
-            bg.setStroke(dp(1), Color.parseColor("#D8E0EC"));
-            card.setBackground(bg);
+            bg.setColor(Color.parseColor("#F8FAFE"));
+            bg.setCornerRadius(dp(13));
+            bg.setStroke(dp(1), Color.parseColor("#E0E9F7"));
+            box.setBackground(bg);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+            lp.setMargins(0, dp(7), 0, dp(4));
+            resultBox.addView(box, lp);
 
-            TextView tv = new TextView(this);
-            tv.setText("来源：" + r.source + "   匹配度：" + r.score + "%\n" + r.title + "\n" + r.url);
-            tv.setTextColor(Color.parseColor("#263248"));
-            tv.setTextSize(13);
-            card.addView(tv);
+            TextView title = new TextView(this);
+            title.setText(r.title);
+            title.setTextSize(15);
+            title.setTypeface(Typeface.DEFAULT_BOLD);
+            title.setTextColor(Color.parseColor("#1F3052"));
+            title.setMaxLines(2);
+            box.addView(title);
 
-            LinearLayout row = new LinearLayout(this);
-            row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setPadding(0, dp(8), 0, 0);
-            Button down = primaryButton("解析并下载");
+            TextView meta = new TextView(this);
+            meta.setText(r.source + "  ·  "
+                    + (LinkResolver.fileHint(r.url) ? "文件链接" : "详情页面")
+                    + "  ·  评分 " + r.score);
+            meta.setTextSize(11);
+            meta.setTextColor(Color.parseColor("#3167CC"));
+            meta.setPadding(0, dp(5), 0, dp(4));
+            box.addView(meta);
+
+            TextView url = new TextView(this);
+            url.setText(r.url);
+            url.setMaxLines(2);
+            url.setTextSize(11);
+            url.setTextColor(Color.parseColor("#8190A9"));
+            box.addView(url);
+
+            LinearLayout actions = new LinearLayout(this);
+            actions.setPadding(0, dp(10), 0, 0);
+            box.addView(actions);
+            Button down = primaryButton("↓  解析下载");
             down.setOnClickListener(v -> download(r));
-            row.addView(down, weight(1));
-            Button open = secondaryButton("网页分析");
-            open.setOnClickListener(v -> {
+            actions.addView(down, weight(1));
+            Button preview = secondaryButton("◉  网页查看");
+            preview.setOnClickListener(v -> {
                 Intent intent = new Intent(this, WebAnalyzeActivity.class);
                 intent.putExtra("initial_url", r.url);
                 intent.putExtra("keyword", bookInput.getText().toString().trim());
                 startActivity(intent);
             });
-            row.addView(open, weight(1));
-            card.addView(row);
-            resultBox.addView(card);
+            actions.addView(preview, weight(1));
         }
+
         if (autoDownloadCheck.isChecked() && !unique.isEmpty()
-                && LinkResolver.matchScore(bookInput.getText().toString(), unique.get(0).title) >= 70)
+                && LinkResolver.matchScore(bookInput.getText().toString(),
+                unique.get(0).title) >= 70) {
             download(unique.get(0));
+        }
     }
 
     /** The old version queued an HTML detail page as a .pdf. Never do that. */
