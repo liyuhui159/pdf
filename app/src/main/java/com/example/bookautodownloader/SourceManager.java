@@ -336,6 +336,7 @@ public final class SourceManager {
 
         final Runnable[] refresh = new Runnable[1];
         refresh[0] = () -> {
+            int scrollY = scroll.getScrollY();
             int active = 0;
             for (Site s : working) if (s.enabled) active++;
             selected.setText("已勾选 " + active + " / " + working.size());
@@ -417,6 +418,7 @@ public final class SourceManager {
                             refresh[0].run();
                         }).show());
             }
+            scroll.post(() -> scroll.scrollTo(0, scrollY));
         };
         refresh[0].run();
 
