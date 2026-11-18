@@ -220,14 +220,28 @@ public class WebAnalyzeActivity extends Activity {
 
         LinearLayout bottom = new LinearLayout(this);
         root.addView(bottom, new LinearLayout.LayoutParams(-1, dp(44)));
-        Button home = button("⌕  返回搜索", false);
-        home.setOnClickListener(v -> finish());
+        Button home = button("⌕ 搜索", false);
+        home.setOnClickListener(v -> returnToMain(false));
         bottom.addView(home, weight());
-        Button downloads = button("↓  下载管理", true);
+        Button sites = button("▤ 网站", false);
+        sites.setOnClickListener(v -> returnToMain(true));
+        bottom.addView(sites, weight());
+        Button downloads = button("↓ 下载", false);
         downloads.setOnClickListener(v ->
                 startActivity(new Intent(this, DownloadManagerActivity.class)));
         bottom.addView(downloads, weight());
+        Button current = button("◉ 网页", true);
+        current.setEnabled(false);
+        bottom.addView(current, weight());
         setContentView(root);
+    }
+
+    private void returnToMain(boolean sources) {
+        Intent target = new Intent(this, MainActivity.class);
+        target.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        if (sources) target.putExtra("open_sources", true);
+        startActivity(target);
+        finish();
     }
 
     private void setupWebView() {
