@@ -667,7 +667,22 @@ public class MainActivity extends Activity {
             int score = Math.max(55, LinkResolver.matchScore(keyword, book.title));
             found.add(new Result(source.name, book.title, target, score, book.details));
         }
-        logSafe(source.name + " 公开目录返回：" + found.size() + " 条书籍");
+        // The public catalog may cover fewer items than the human website.
+        // Fall back to the site's ordinary search page instead of returning
+        // "no match" solely because the catalog API contains zero records.
+        if (found.isEmpty()) {
+            String page = makeSearchUrl(ShugeCatalog.browserTemplate(), keyword);
+            try {
+                String html = httpGet(page);
+                ArrayList<Result> manual = parseLinks(html, page, keyword, "",
+                        source.name + " · 官网页面");
+                for (Result item : manual) found.add(item);
+                logSafe("书格官网搜索页候选：" + manual.size() + " 条");
+            } catch (Exception ex) {
+                logSafe("书格网页回退检索：" + ex.getMessage());
+            }
+        }
+        logSafe(source.name + " 公开目录/官网搜索合计：" + found.size() + " 条书籍链接");
         return found;
     }
 
