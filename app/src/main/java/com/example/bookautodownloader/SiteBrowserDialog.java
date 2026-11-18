@@ -2,6 +2,8 @@ package com.example.bookautodownloader;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.Dialog;
+import android.graphics.drawable.ColorDrawable;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
@@ -119,12 +121,16 @@ public final class SiteBrowserDialog {
         root.setBackgroundColor(BG);
         root.setPadding(dp(activity, 8), dp(activity, 7), dp(activity, 8), dp(activity, 8));
 
+        LinearLayout headRow = horizontal(activity);
         TextView heading = text(activity, "网页验证 · #" +
                 String.format(Locale.ROOT, "%02d", site.id) + "  " + site.name,
                 17, INK, true);
         heading.setPadding(dp(activity, 8), dp(activity, 4),
                 dp(activity, 4), dp(activity, 7));
-        root.addView(heading);
+        headRow.addView(heading, new LinearLayout.LayoutParams(0, -2, 1));
+        Button close = button(activity, "关闭 ×", false);
+        headRow.addView(close, new LinearLayout.LayoutParams(dp(activity, 71), dp(activity, 35)));
+        root.addView(headRow);
 
         TextView hint = text(activity, "真实 WebView 浏览器 · 测试书名：" + sample, 11, MUTED, false);
         hint.setPadding(dp(activity, 8), 0, 0, dp(activity, 7));
@@ -281,10 +287,11 @@ public final class SiteBrowserDialog {
         back.setEnabled(false);
         next.setEnabled(false);
 
-        AlertDialog dialog = new AlertDialog.Builder(activity)
-                .setView(root)
-                .setNegativeButton("关闭窗口", (d, w) -> {})
-                .create();
+        // A full-height Dialog gives the weighted WebView an exact viewport;
+        // AlertDialog's wrap-content custom panel can collapse the WebView on phones.
+        Dialog dialog = new Dialog(activity, android.R.style.Theme_Material_Light_NoActionBar);
+        dialog.setContentView(root);
+        close.setOnClickListener(v -> dialog.dismiss());
 
         auto.setOnClickListener(v -> {
             auto.setEnabled(false);
@@ -384,6 +391,7 @@ public final class SiteBrowserDialog {
             if (dialog.getWindow() != null) {
                 int height = activity.getResources().getDisplayMetrics().heightPixels;
                 int width = activity.getResources().getDisplayMetrics().widthPixels;
+                dialog.getWindow().setBackgroundDrawable(new ColorDrawable(BG));
                 dialog.getWindow().setLayout((int)(width * 0.97f), (int)(height * 0.90f));
                 dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
             }
