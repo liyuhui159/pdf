@@ -208,6 +208,15 @@ public final class SiteBrowserDialog {
         applyLp.setMargins(dp(activity, 3), dp(activity, 4), dp(activity, 3), 0);
         root.addView(applyCurrent, applyLp);
 
+        // Compact landscape/foldable layout keeps room for the actual webpage.
+        float availableDp = activity.getResources().getDisplayMetrics().heightPixels
+                / activity.getResources().getDisplayMetrics().density;
+        if (availableDp < 590f) {
+            hint.setVisibility(View.GONE);
+            help.setVisibility(View.GONE);
+            applyCurrent.setText("更新当前搜索网址");
+        }
+
         final boolean[] mainError = { false };
         final boolean[] loaded = { false };
         web.setWebViewClient(new WebViewClient() {
@@ -289,7 +298,7 @@ public final class SiteBrowserDialog {
 
         // A full-height Dialog gives the weighted WebView an exact viewport;
         // AlertDialog's wrap-content custom panel can collapse the WebView on phones.
-        Dialog dialog = new Dialog(activity, android.R.style.Theme_Material_Light_NoActionBar);
+        Dialog dialog = new Dialog(activity);
         dialog.setContentView(root);
         close.setOnClickListener(v -> dialog.dismiss());
 
