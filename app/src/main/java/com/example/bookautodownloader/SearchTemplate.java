@@ -56,6 +56,11 @@ public final class SearchTemplate {
         }
         Matcher encoded = ENCODED_PLACEHOLDER.matcher(s);
         s = encoded.replaceAll("{$1}");
+        // V11 mistakenly appended ?q= to Shuge's homepage. The human-facing
+        // Wordpress search parameter is ?s=; backend retrieval uses Shuge API.
+        if (ShugeCatalog.incorrectHomeTemplate(s))
+            return new Conversion(ShugeCatalog.browserTemplate(), false,
+                    "书格已改用站内搜索地址；自动检索使用书格公开 API");
         if (s.contains("{keyword}") || s.contains("{keyword_raw}"))
             return new Conversion(s, false, "已包含搜索关键词占位符");
         try {
@@ -110,6 +115,7 @@ public final class SearchTemplate {
             String h = new URL(template).getHost().replaceFirst("(?i)^www\\.", "");
             if (h.equalsIgnoreCase("gutendex.com")) return "Gutendex 公版书库";
             if (h.equalsIgnoreCase("gutenberg.org")) return "Project Gutenberg";
+            if (ShugeCatalog.isShuge(template)) return "书格 · 古籍数字图书馆";
             return h;
         } catch (Exception ex) {
             return "自定义资源站";
