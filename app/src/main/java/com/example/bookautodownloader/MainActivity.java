@@ -73,6 +73,17 @@ public class MainActivity extends Activity {
         super.onCreate(b);
         buildUi();
         loadSettings();
+        if (getIntent() != null && getIntent().getBooleanExtra("open_sources", false))
+            ui.post(this::openSourceManager);
+    }
+
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        if (intent != null && intent.getBooleanExtra("open_sources", false)) {
+            intent.removeExtra("open_sources");
+            ui.post(this::openSourceManager);
+        }
     }
 
     private void buildUi() {
