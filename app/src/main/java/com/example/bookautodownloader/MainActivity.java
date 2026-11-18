@@ -906,8 +906,16 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** The old version queued an HTML detail page as a .pdf. Never do that. */
+    /** Send cloud/gateway pages to authenticated WebView, not DownloadManager. */
     private void download(Result r) {
+        if (CloudLinkHandler.needsWebFlow(r.url)) {
+            Intent intent = new Intent(this, CloudLoginActivity.class);
+            intent.putExtra(CloudLoginActivity.EXTRA_URL, r.url);
+            intent.putExtra(CloudLoginActivity.EXTRA_KEYWORD,
+                    bookInput.getText().toString().trim());
+            startActivity(intent);
+            return;
+        }
         log("正在逐层解析：" + r.title);
         new Thread(() -> {
             LinkResolver.FileLink file = LinkResolver.resolve(r.url, null, r.title,
@@ -915,8 +923,17 @@ public class MainActivity extends Activity {
                     this::logSafe);
             ui.post(() -> {
                 if (file == null) {
-                    toast("未取得真实文件地址，请点击“网页分析”登录或操作");
-                    log("未下载：目标仍是网页，或需要网页内 JavaScript 生成下载链接");
+                    new AlertDialog.Builder(this)
+                            .setTitle("需要网页登录或进一步操作")
+                            .setMessage("没有发现可直接下载的文件。可能是网页登录页、动态下载按钮或网盘分享入口。要进入网页登录窗口继续吗？")
+                            .setNegativeButton("取消", null)
+                            .setPositiveButton("打开网页登录", (d, w) -> {
+                                Intent intent = new Intent(this, WebAnalyzeActivity.class);
+                                intent.putExtra("initial_url", r.url);
+                                intent.putExtra("keyword", r.title);
+                                startActivity(intent);
+                            }).show();
+                    log("尚未获得真实文件地址；可登录后再次提取");
                     return;
                 }
                 try {
