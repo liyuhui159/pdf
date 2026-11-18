@@ -119,7 +119,9 @@ public final class CloudLoginActivity extends Activity {
             Toast.makeText(this, "登录网址无效", Toast.LENGTH_LONG).show();
             finish(); return;
         }
-        originalUrl = requested;
+        // Never enter credentials on a plaintext HTTP cloud-login page.
+        originalUrl = requested.startsWith("http://")
+                ? "https://" + requested.substring("http://".length()) : requested;
         keyword = getIntent().getStringExtra(EXTRA_KEYWORD);
         if (keyword == null) keyword = "";
         build();
@@ -318,7 +320,8 @@ public final class CloudLoginActivity extends Activity {
 
     private void openExternal() {
         String target = browser == null ? originalUrl : browser.getUrl();
-        if (!LinkResolver.webUrl(target)) target = originalUrl;
+        if (!LinkResolver.webUrl(target) || CloudLinkHandler.looksLikeWebLogin(target))
+            target = originalUrl;
         try {
             Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(target));
             startActivity(Intent.createChooser(intent, "使用网盘客户端或系统浏览器打开"));
