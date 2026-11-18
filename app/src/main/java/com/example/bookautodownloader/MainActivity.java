@@ -454,9 +454,9 @@ public class MainActivity extends Activity {
         b.setMinimumHeight(0);
         b.setPadding(dp(7), 0, dp(7), 0);
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(Color.WHITE);
+        bg.setColor(Color.parseColor("#E2ECFF"));
         bg.setCornerRadius(dp(11));
-        bg.setStroke(dp(1), Color.parseColor("#D7E3F6"));
+        bg.setStroke(dp(1), Color.parseColor("#D0DEFA"));
         b.setBackground(bg);
         return b;
     }
