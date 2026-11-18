@@ -1,6 +1,7 @@
 package com.example.bookautodownloader;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.app.DownloadManager;
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -28,6 +29,9 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.widget.ImageView;
+import android.view.View;
+import android.view.inputmethod.EditorInfo;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -42,6 +46,8 @@ public class WebAnalyzeActivity extends Activity {
     private EditText urlInput;
     private WebView webView;
     private LinearLayout resultBox;
+    private ScrollView candidatePane;
+    private Button candidateToggle;
     private TextView logView;
     private final ArrayList<Item> items = new ArrayList<>();
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -66,80 +72,161 @@ public class WebAnalyzeActivity extends Activity {
     protected void onDestroy() {
         waitRunning = false;
         handler.removeCallbacksAndMessages(null);
+        if (webView != null) {
+            webView.stopLoading();
+            webView.destroy();
+            webView = null;
+        }
         super.onDestroy();
     }
 
     private void buildUi() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(Color.parseColor("#F4F7FB"));
-        root.setPadding(dp(10), dp(10), dp(10), dp(10));
+        root.setBackgroundColor(Color.parseColor("#F4F7FD"));
+        root.setPadding(dp(11), dp(9), dp(11), dp(8));
 
+        LinearLayout banner = new LinearLayout(this);
+        banner.setGravity(Gravity.CENTER_VERTICAL);
+        banner.setPadding(dp(12), dp(10), dp(12), dp(10));
+        GradientDrawable bannerBg = new GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                new int[]{Color.parseColor("#1454E0"), Color.parseColor("#129EEA")});
+        bannerBg.setCornerRadius(dp(15));
+        banner.setBackground(bannerBg);
+        ImageView logo = new ImageView(this);
+        logo.setImageResource(R.drawable.ic_book_search);
+        banner.addView(logo, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        LinearLayout info = new LinearLayout(this);
+        info.setOrientation(LinearLayout.VERTICAL);
+        info.setPadding(dp(10), 0, 0, 0);
         TextView title = new TextView(this);
-        title.setText("网页登录分析下载链接");
-        title.setTextSize(21);
+        title.setText("网页下载分析");
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setGravity(Gravity.CENTER);
-        title.setTextColor(Color.parseColor("#1F2A44"));
-        root.addView(title, new LinearLayout.LayoutParams(-1, -2));
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(19);
+        info.addView(title);
+        TextView subtitle = new TextView(this);
+        subtitle.setText("浏览网页、登录后识别真实文件链接");
+        subtitle.setTextSize(11);
+        subtitle.setTextColor(Color.parseColor("#E2F0FF"));
+        info.addView(subtitle);
+        banner.addView(info);
+        LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(-1, -2);
+        bp.setMargins(0, 0, 0, dp(10));
+        root.addView(banner, bp);
 
-        TextView tip = new TextView(this);
-        tip.setText("先手动登录/搜索/进入详情页，再点“分析当前页链接”。遇到60秒慢速下载页，可用“等待并点下载”，它只等待网页按钮变可点，不绕过验证码或限制。");
-        tip.setTextSize(12);
-        tip.setTextColor(Color.parseColor("#5B6475"));
-        tip.setPadding(0, dp(6), 0, dp(6));
-        root.addView(tip);
+        keywordInput = input("书名 / 关键词", 1);
+        keywordInput.setSingleLine(true);
+        keywordInput.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
+        LinearLayout.LayoutParams kp = new LinearLayout.LayoutParams(-1, dp(44));
+        kp.setMargins(0, 0, 0, dp(6));
+        root.addView(keywordInput, kp);
 
-        keywordInput = input("书名 / 资料名，可读取剪贴板", 1);
-        root.addView(keywordInput, new LinearLayout.LayoutParams(-1, -2));
-
-        urlInput = input("搜索网址，可含 {keyword}，例如：https://example.com/search?q={keyword}", 2);
+        urlInput = input("输入网页地址或包含 {keyword} 的搜索网址", 1);
+        urlInput.setSingleLine(true);
+        urlInput.setImeOptions(EditorInfo.IME_ACTION_GO);
         urlInput.setText("https://www.gutenberg.org/ebooks/search/?query={keyword}");
-        root.addView(urlInput, new LinearLayout.LayoutParams(-1, -2));
+        urlInput.setOnEditorActionListener((v, actionId, event) -> {
+            if (actionId == EditorInfo.IME_ACTION_GO) {
+                openUrl();
+                return true;
+            }
+            return false;
+        });
+        root.addView(urlInput, new LinearLayout.LayoutParams(-1, dp(45)));
 
-        LinearLayout row1 = new LinearLayout(this);
-        row1.setOrientation(LinearLayout.HORIZONTAL);
-        row1.setPadding(0, dp(6), 0, dp(4));
-        root.addView(row1);
-        Button clip = button("读剪贴板", true);
-        clip.setOnClickListener(v -> readClipboard());
-        row1.addView(clip, weight());
-        Button open = button("打开/搜索", true);
+        LinearLayout actions = new LinearLayout(this);
+        actions.setPadding(0, dp(7), 0, dp(4));
+        root.addView(actions);
+        Button open = button("打开 / 搜索", true);
         open.setOnClickListener(v -> openUrl());
-        row1.addView(open, weight());
-        Button analyze = button("分析当前页链接", true);
-        analyze.setOnClickListener(v -> analyzePage());
-        row1.addView(analyze, weight());
+        actions.addView(open, weight());
+        Button analyze = button("识别当前页", false);
+        analyze.setOnClickListener(v -> {
+            candidatePane.setVisibility(View.VISIBLE);
+            candidateToggle.setText("已识别链接  ▴");
+            analyzePage();
+        });
+        actions.addView(analyze, weight());
+        Button clip = button("粘贴书名", false);
+        clip.setOnClickListener(v -> readClipboard());
+        actions.addView(clip, weight());
 
-        LinearLayout row2 = new LinearLayout(this);
-        row2.setOrientation(LinearLayout.HORIZONTAL);
-        row2.setPadding(0, dp(2), 0, dp(6));
-        root.addView(row2);
-        Button waitBtn = button("等待并点下载", true);
-        waitBtn.setOnClickListener(v -> startWaitDownload());
-        row2.addView(waitBtn, weight());
-        Button stopBtn = button("停止等待", false);
-        stopBtn.setOnClickListener(v -> stopWaitDownload());
-        row2.addView(stopBtn, weight());
-        Button backBtn = button("网页返回", false);
-        backBtn.setOnClickListener(v -> { if (webView.canGoBack()) webView.goBack(); });
-        row2.addView(backBtn, weight());
+        LinearLayout navigation = new LinearLayout(this);
+        navigation.setPadding(0, dp(3), 0, dp(7));
+        root.addView(navigation);
+        Button backBtn = button("← 后退", false);
+        backBtn.setOnClickListener(v -> {
+            if (webView != null && webView.canGoBack()) webView.goBack();
+        });
+        navigation.addView(backBtn, weight());
+        Button nextBtn = button("前进 →", false);
+        nextBtn.setOnClickListener(v -> {
+            if (webView != null && webView.canGoForward()) webView.goForward();
+        });
+        navigation.addView(nextBtn, weight());
+        Button refresh = button("刷新", false);
+        refresh.setOnClickListener(v -> {
+            if (webView != null) webView.reload();
+        });
+        navigation.addView(refresh, weight());
 
         webView = new WebView(this);
+        webView.setBackgroundColor(Color.WHITE);
         LinearLayout.LayoutParams wlp = new LinearLayout.LayoutParams(-1, 0, 1.0f);
         root.addView(webView, wlp);
 
-        ScrollView rs = new ScrollView(this);
+        candidateToggle = button("查看识别链接  ▾", false);
+        candidateToggle.setOnClickListener(v -> {
+            boolean show = candidatePane.getVisibility() != View.VISIBLE;
+            candidatePane.setVisibility(show ? View.VISIBLE : View.GONE);
+            candidateToggle.setText(show ? "收起识别链接  ▴" : "查看识别链接  ▾");
+            if (show) analyzePage();
+        });
+        LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(-1, dp(38));
+        tp.setMargins(0, dp(7), 0, dp(3));
+        root.addView(candidateToggle, tp);
+
+        candidatePane = new ScrollView(this);
+        candidatePane.setBackgroundColor(Color.WHITE);
+        candidatePane.setVisibility(View.GONE);
         resultBox = new LinearLayout(this);
         resultBox.setOrientation(LinearLayout.VERTICAL);
-        rs.addView(resultBox);
-        root.addView(rs, new LinearLayout.LayoutParams(-1, dp(235)));
+        resultBox.setPadding(dp(5), dp(7), dp(5), dp(7));
+        candidatePane.addView(resultBox);
+        root.addView(candidatePane, new LinearLayout.LayoutParams(-1, dp(195)));
+
+        LinearLayout tools = new LinearLayout(this);
+        tools.setPadding(0, dp(4), 0, dp(3));
+        root.addView(tools);
+        Button waitBtn = button("等待可用下载按钮", false);
+        waitBtn.setOnClickListener(v -> startWaitDownload());
+        tools.addView(waitBtn, weight());
+        Button stopBtn = button("停止等待", false);
+        stopBtn.setOnClickListener(v -> stopWaitDownload());
+        tools.addView(stopBtn, weight());
 
         logView = new TextView(this);
-        logView.setTextSize(11);
-        logView.setTextColor(Color.parseColor("#39445A"));
-        root.addView(logView, new LinearLayout.LayoutParams(-1, -2));
+        logView.setTextSize(10);
+        logView.setMaxLines(2);
+        logView.setTextColor(Color.parseColor("#697A97"));
+        logView.setPadding(dp(3), dp(5), dp(3), dp(5));
+        logView.setText("状态：输入网页地址开始，或在搜索结果中点击“网页查看”。");
+        logView.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("网页分析日志").setMessage(logView.getText().toString())
+                .setPositiveButton("确定", null).show());
+        root.addView(logView, new LinearLayout.LayoutParams(-1, dp(38)));
 
+        LinearLayout bottom = new LinearLayout(this);
+        root.addView(bottom, new LinearLayout.LayoutParams(-1, dp(44)));
+        Button home = button("⌕  返回搜索", false);
+        home.setOnClickListener(v -> finish());
+        bottom.addView(home, weight());
+        Button downloads = button("↓  下载管理", true);
+        downloads.setOnClickListener(v ->
+                startActivity(new Intent(this, DownloadManagerActivity.class)));
+        bottom.addView(downloads, weight());
         setContentView(root);
     }
 
@@ -175,12 +262,13 @@ public class WebAnalyzeActivity extends Activity {
         EditText e = new EditText(this);
         e.setHint(hint);
         e.setMinLines(lines);
-        e.setTextSize(15);
-        e.setPadding(dp(9), dp(7), dp(9), dp(7));
+        e.setTextSize(13);
+        e.setTextColor(Color.parseColor("#1E2D4B"));
+        e.setPadding(dp(12), dp(8), dp(12), dp(8));
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(Color.WHITE);
-        bg.setCornerRadius(dp(8));
-        bg.setStroke(dp(1), Color.parseColor("#D8E0EC"));
+        bg.setCornerRadius(dp(11));
+        bg.setStroke(dp(1), Color.parseColor("#DCE6F5"));
         e.setBackground(bg);
         return e;
     }
@@ -190,18 +278,22 @@ public class WebAnalyzeActivity extends Activity {
         b.setText(text);
         b.setTextSize(12);
         b.setAllCaps(false);
-        b.setTextColor(primary ? Color.WHITE : Color.parseColor("#2F6BFF"));
+        b.setMinHeight(0);
+        b.setMinimumHeight(0);
+        b.setPadding(dp(4), 0, dp(4), 0);
+        b.setTextColor(primary ? Color.WHITE : Color.parseColor("#2869F3"));
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(primary ? Color.parseColor("#2F6BFF") : Color.parseColor("#EEF3FF"));
-        bg.setCornerRadius(dp(8));
-        bg.setStroke(dp(1), primary ? Color.parseColor("#2F6BFF") : Color.parseColor("#C9D8FF"));
+        bg.setColor(primary ? Color.parseColor("#2869F3") : Color.WHITE);
+        bg.setCornerRadius(dp(10));
+        bg.setStroke(dp(1), primary
+                ? Color.parseColor("#2869F3") : Color.parseColor("#DCE6F5"));
         b.setBackground(bg);
         return b;
     }
 
     private LinearLayout.LayoutParams weight() {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1);
-        lp.setMargins(dp(2), 0, dp(2), 0);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(39), 1);
+        lp.setMargins(dp(3), 0, dp(3), 0);
         return lp;
     }
 
