@@ -286,6 +286,25 @@ public final class SourceManager {
         return String.format(java.util.Locale.ROOT, "%02d", n);
     }
 
+    private static void styleDialogActions(AlertDialog dialog) {
+        Button yes = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+        Button no = dialog.getButton(AlertDialog.BUTTON_NEGATIVE);
+        if (yes != null) {
+            yes.setAllCaps(false);
+            yes.setTextColor(Color.WHITE);
+            yes.setBackground(background(dialog.getContext(),
+                    BLUE, BLUE, 9));
+            yes.setPadding(dp(dialog.getContext(), 12), 0, dp(dialog.getContext(), 12), 0);
+        }
+        if (no != null) {
+            no.setAllCaps(false);
+            no.setTextColor(BLUE);
+            no.setBackground(background(dialog.getContext(),
+                    Color.rgb(220, 234, 255), Color.rgb(207, 223, 250), 9));
+            no.setPadding(dp(dialog.getContext(), 12), 0, dp(dialog.getContext(), 12), 0);
+        }
+    }
+
     public static void open(Activity activity, ArrayList<Site> current,
                             String searchKeyword, Saved onSaved) {
         final ArrayList<Site> working = new ArrayList<>();
@@ -458,8 +477,7 @@ public final class SourceManager {
                 .setNegativeButton("取消", null)
                 .create();
         dialog.setOnShowListener(d -> {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(BLUE);
-            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(MUTED);
+            styleDialogActions(dialog);
             if (dialog.getWindow() != null) dialog.getWindow().setLayout(
                     (int) (activity.getResources().getDisplayMetrics().widthPixels * .94f),
                     WindowManager.LayoutParams.WRAP_CONTENT);
@@ -545,7 +563,9 @@ public final class SourceManager {
                 .setPositiveButton("添加", null)
                 .setNegativeButton("取消", null)
                 .create();
-        dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+        dialog.setOnShowListener(d -> {
+            styleDialogActions(dialog);
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
             try {
                 String raw = url.getText().toString().trim();
                 if (raw.contains("\n") || raw.contains("\r")) {
@@ -569,7 +589,8 @@ public final class SourceManager {
             } catch (Exception e) {
                 Toast.makeText(activity, e.getMessage(), Toast.LENGTH_LONG).show();
             }
-        }));
+        });
+        });
         dialog.show();
     }
 
@@ -604,7 +625,9 @@ public final class SourceManager {
                 .setPositiveButton("保存修改", null)
                 .setNegativeButton("取消", null)
                 .create();
-        dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+        dialog.setOnShowListener(d -> {
+            styleDialogActions(dialog);
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
             try {
                 SearchTemplate.Conversion c = SearchTemplate.convert(url.getText().toString());
                 site.template = c.template;
@@ -620,7 +643,8 @@ public final class SourceManager {
             } catch (Exception e) {
                 Toast.makeText(activity, e.getMessage(), Toast.LENGTH_LONG).show();
             }
-        }));
+        });
+        });
         dialog.show();
     }
 }
