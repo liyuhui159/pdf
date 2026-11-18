@@ -323,7 +323,8 @@ public final class CloudLoginActivity extends Activity {
             + "var name=(e.innerText||e.textContent||e.getAttribute('download')||e.title||'').trim().slice(0,90);"
             + "var download=/\\.(?:pdf|epub|zip|rar|7z|txt|mobi|azw3)(?:$|[?#])/i.test(u)"
             + "||/下载|download|获取文件|保存文件/i.test(name)||e.hasAttribute('download');"
-            + "if(download){seen[u]=1;out.push({title:name||'网页文件链接',url:u});}"
+            + "var cloud=/^https?:\\/\\/(?:[^./]+\\.)*(?:pan\\.baidu\\.com|yun\\.baidu\\.com|alipan\\.com|aliyundrive\\.com|pan\\.quark\\.cn|drive\\.uc\\.cn|cloud\\.189\\.cn|123pan\\.com|123684\\.com|pan\\.xunlei\\.com)\\//i.test(u);"
+            + "if(download||cloud){seen[u]=1;out.push({title:name||(cloud?'网盘入口':'网页文件链接'),url:u});}"
             + "});return JSON.stringify(out.slice(0,60));})()";
 
     private void inspectVisibleLinks() {
@@ -386,8 +387,12 @@ public final class CloudLoginActivity extends Activity {
         box.addView(detail);
         LinearLayout buttons = row();
         box.addView(buttons);
-        Button inspect = button("验证并下载", true);
-        inspect.setOnClickListener(v -> resolveAndDownload(url));
+        boolean cloudLink = CloudLinkHandler.isCloud(url);
+        Button inspect = button(cloudLink ? "打开网盘登录" : "验证并下载", true);
+        inspect.setOnClickListener(v -> {
+            if (cloudLink) browser.loadUrl(url);
+            else resolveAndDownload(url);
+        });
         buttons.addView(inspect, flex(1, 38));
         Button open = button("网页打开", false);
         open.setOnClickListener(v -> browser.loadUrl(url));
