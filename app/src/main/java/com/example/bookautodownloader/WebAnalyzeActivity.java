@@ -244,6 +244,7 @@ public class WebAnalyzeActivity extends Activity {
         webView.setWebViewClient(new WebViewClient() {
             @Override public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
+                if (LinkResolver.webUrl(url)) urlInput.setText(url);
                 // Analyze the rendered DOM (including JavaScript-created anchors).
                 handler.postDelayed(() -> {
                     if (!isFinishing() && webView != null) analyzePage();
