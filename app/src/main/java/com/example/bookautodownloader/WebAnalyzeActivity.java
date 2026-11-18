@@ -262,6 +262,22 @@ public class WebAnalyzeActivity extends Activity {
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
         webView.setWebViewClient(new WebViewClient() {
+            @Override public boolean shouldOverrideUrlLoading(WebView view, android.webkit.WebResourceRequest request) {
+                String target = request == null || request.getUrl() == null
+                        ? "" : request.getUrl().toString();
+                if (request != null && request.isForMainFrame() && CloudLinkHandler.isCloud(target)) {
+                    openCloudLogin(target);
+                    return true;
+                }
+                return false;
+            }
+            @Override public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                if (CloudLinkHandler.isCloud(url)) {
+                    openCloudLogin(url);
+                    return true;
+                }
+                return false;
+            }
             @Override public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 CookieManager.getInstance().flush();
