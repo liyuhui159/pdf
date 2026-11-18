@@ -633,6 +633,7 @@ public class MainActivity extends Activity {
     }
 
     private ArrayList<Result> searchOne(Source source, String keyword, String exts) throws Exception {
+        if (ShugeCatalog.isShuge(source.template)) return searchShuge(source, keyword);
         String url = makeSearchUrl(source.template, keyword);
         logSafe(source.name + " 搜索：" + url);
         String response = httpGet(url);
@@ -644,6 +645,30 @@ public class MainActivity extends Activity {
         }
         logSafe(source.name + " 候选链接：" + results.size() + " 个");
         return results;
+    }
+
+    private ArrayList<Result> searchShuge(Source source, String keyword) throws Exception {
+        // The public catalog's GET /query/ endpoint returns JSON items.
+        // The old ?q= appended to www.shuge.org loaded only its home page.
+        String url = ShugeCatalog.apiUrl(keyword);
+        logSafe(source.name + " 使用书格公开查询：" + url);
+        ArrayList<ShugeCatalog.Book> books = ShugeCatalog.parse(httpGet(url), keyword);
+        if (books.isEmpty()) {
+            String alternate = ShugeCatalog.alternateKeyword(keyword);
+            if (!alternate.equals(keyword)) {
+                logSafe("书格简体无结果，继续尝试传统字形：" + alternate);
+                books = ShugeCatalog.parse(httpGet(ShugeCatalog.apiUrl(alternate)), alternate);
+            }
+        }
+        ArrayList<Result> found = new ArrayList<>();
+        for (ShugeCatalog.Book book : books) {
+            String target = !book.download.isEmpty() ? book.download : book.details;
+            if (!LinkResolver.webUrl(target)) continue;
+            int score = Math.max(55, LinkResolver.matchScore(keyword, book.title));
+            found.add(new Result(source.name, book.title, target, score, book.details));
+        }
+        logSafe(source.name + " 公开目录返回：" + found.size() + " 条书籍");
+        return found;
     }
 
     /** Gutendex gives actual public-domain file URLs instead of HTML search cards. */
@@ -827,8 +852,9 @@ public class MainActivity extends Activity {
 
             TextView meta = new TextView(this);
             meta.setText(r.source + "  ·  "
-                    + (LinkResolver.fileHint(r.url) ? "文件链接" : "详情页面")
-                    + "  ·  评分 " + r.score);
+                    + (ShugeCatalog.isShuge(r.detailUrl) ? "书格资源"
+                    : LinkResolver.fileHint(r.url) ? "文件链接" : "详情/下载入口")
+                    + "  ·  匹配 " + r.score);
             meta.setTextSize(11);
             meta.setTextColor(Color.parseColor("#3167CC"));
             meta.setPadding(0, dp(5), 0, dp(4));
@@ -850,7 +876,8 @@ public class MainActivity extends Activity {
             Button preview = secondaryButton("◉  网页查看");
             preview.setOnClickListener(v -> {
                 Intent intent = new Intent(this, WebAnalyzeActivity.class);
-                intent.putExtra("initial_url", r.url);
+                intent.putExtra("initial_url",
+                        LinkResolver.webUrl(r.detailUrl) ? r.detailUrl : r.url);
                 intent.putExtra("keyword", bookInput.getText().toString().trim());
                 startActivity(intent);
             });
@@ -921,7 +948,11 @@ public class MainActivity extends Activity {
     }
 
     private static class Result {
-        String source; String title; String url; int score;
-        Result(String src, String t, String u, int s) { source = src; title = t; url = u; score = s; }
+        String source; String title; String url; String detailUrl; int score;
+        Result(String src, String t, String u, int s) { this(src, t, u, s, u); }
+        Result(String src, String t, String u, int s, String detail) {
+            source = src; title = t; url = u; score = s;
+            detailUrl = detail == null ? u : detail;
+        }
     }
 }
