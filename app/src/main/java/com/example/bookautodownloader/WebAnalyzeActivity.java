@@ -149,9 +149,9 @@ public class WebAnalyzeActivity extends Activity {
             analyzePage();
         });
         actions.addView(analyze, weight());
-        Button clip = button("粘贴书名", false);
-        clip.setOnClickListener(v -> readClipboard());
-        actions.addView(clip, weight());
+        Button nativeSearch = button("站内搜索", false);
+        nativeSearch.setOnClickListener(v -> searchNativeForm());
+        actions.addView(nativeSearch, weight());
 
         LinearLayout navigation = new LinearLayout(this);
         navigation.setPadding(0, dp(3), 0, dp(7));
@@ -313,6 +313,28 @@ public class WebAnalyzeActivity extends Activity {
     }
 
     private int dp(int v) { return (int)(v * getResources().getDisplayMetrics().density + 0.5f); }
+
+    private void searchNativeForm() {
+        String keyword = keywordInput.getText().toString().trim();
+        if (keyword.isEmpty()) {
+            toast("请先填写书名");
+            return;
+        }
+        if (webView == null || !LinkResolver.webUrl(webView.getUrl())) {
+            toast("请先打开要搜索的网站");
+            return;
+        }
+        log("正在通过网站自己的搜索框检索：" + keyword);
+        webView.evaluateJavascript(NativeSiteSearch.script(keyword), raw -> {
+            if (raw != null && raw.contains("no-search-field"))
+                log("当前页面没有可识别搜索框，请点网站上的搜索按钮");
+            else if (raw != null && raw.contains("filled-no-submit"))
+                log("已输入书名，需要手动点击网站的搜索按钮");
+            else if (raw != null && raw.contains("error:"))
+                log("站内搜索提交遇到问题，请尝试网页手动搜索");
+            else log("已提交网页原生搜索框，请检查页面结果");
+        });
+    }
 
     private void readClipboard() {
         ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
