@@ -241,7 +241,7 @@ public final class SourceManager {
             label = "验证失败 · " + site.checkMessage;
             shade = RED;
         } else {
-            label = "未验证 · 点击“验证”检查搜索接口";
+            label = "尚未检查 · 打开真实网页查看搜索结果";
             shade = MUTED;
         }
         view.setText(label + (site.checkedAt > 0 && !site.testing
@@ -296,8 +296,7 @@ public final class SourceManager {
         root.setBackgroundColor(LIGHT);
 
         TextView caption = text(activity,
-                "勾选后参与搜索；验证会用书名“" + probeWord
-                        + "”测试搜索接口，不会下载文件。", 12);
+                "勾选网站后参与搜索；点“浏览器验证”可直接查看书籍搜索网页。\n测试书名：" + probeWord, 12);
         caption.setTextColor(MUTED);
         caption.setPadding(dp(activity, 7), dp(activity, 1), dp(activity, 7), dp(activity, 9));
         root.addView(caption);
@@ -397,35 +396,17 @@ public final class SourceManager {
                 LinearLayout tools = new LinearLayout(activity);
                 tools.setGravity(Gravity.CENTER_VERTICAL);
                 card.addView(tools);
-                Button verify = action(activity, site.testing ? "验证中…" : "验证", 0);
+                Button verify = action(activity, "浏览器验证", 0);
                 verify.setEnabled(!site.testing);
                 verify.setAlpha(site.testing ? .6f : 1f);
                 Button modify = action(activity, "编辑", 1);
                 Button delete = action(activity, "删除", 2);
-                tools.addView(verify, weighted(activity, 1.15f));
+                tools.addView(verify, weighted(activity, 1.55f));
                 tools.addView(modify, weighted(activity, 1));
                 tools.addView(delete, weighted(activity, 1));
 
-                verify.setOnClickListener(v -> {
-                    if (site.testing) return;
-                    final String snapshot = site.template;
-                    site.testing = true;
-                    refresh[0].run();
-                    new Thread(() -> {
-                        SiteVerifier.Result result = SiteVerifier.verify(snapshot, probeWord);
-                        activity.runOnUiThread(() -> {
-                            site.testing = false;
-                            if (!working.contains(site) || !snapshot.equals(site.template)) return;
-                            site.checkLevel = result.level;
-                            site.checkMessage = result.message
-                                    + (result.httpCode > 0 ? " · HTTP " + result.httpCode : "")
-                                    + " · " + result.durationMs + "ms";
-                            site.checkedAt = System.currentTimeMillis();
-                            if (result.level == SiteVerifier.CONFIRMED) site.guessed = false;
-                            refresh[0].run();
-                        });
-                    }, "check-book-site-" + site.id).start();
-                });
+                verify.setOnClickListener(v ->
+                        SiteBrowserDialog.show(activity, site, probeWord, refresh[0]::run));
                 modify.setOnClickListener(v -> editSite(activity, site, refresh[0]));
                 delete.setOnClickListener(v -> new AlertDialog.Builder(activity)
                         .setTitle("删除网站 #" + number(site.id))
